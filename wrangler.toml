@@ -1,0 +1,16 @@
+# Cloudflare Workers 設定ファイル
+# Cloudflareダッシュボード → Workers & Pages → Workerを作成 → 「Gitに接続」で
+# このリポジトリを選ぶと、この設定を使って自動的にビルド・デプロイされます。
+#
+# ルートディレクトリ (Root directory) は "/"（リポジトリのルート）のままにしてください。
+# main = "worker.js" は、このリポジトリ直下の worker.js をエントリーポイントとして使う設定です。
+#
+# name はデプロイ後のWorker URL（https://<name>.<subdomain>.workers.dev）に使われます。
+# 既に別名（markdown-reader-api）でWorkerを作成済みの場合は、ダッシュボードのGit連携設定時に
+# 既存のWorkerへ接続することもできますし、name をそちらに合わせて書き換えても構いません。
+name = "markdown-reader-voice-api"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# ELEVENLABS_API_KEY と（推奨）ALLOWED_ORIGIN は、コードに書かず
+# ダッシュボードの「設定 → 変数とシークレット」から設定してください。
