@@ -1,5 +1,7 @@
 # 読み上げリーダー (Markdown Voice Reader)
 
+<a href="https://tsukutta.app/apps/7c82391d-9226-45da-a45f-db4ea8504254"><img src="https://tsukutta.app/api/badge/7c82391d-9226-45da-a45f-db4ea8504254?lang=ja" alt="Tsukuttaに掲載中" width="200" height="40"></a>
+
 Markdown ファイルを読み込み、表示しながら音声で読み上げる単一HTMLのWebアプリです。
 `index.html` を GitHub Pages / Cloudflare Pages などにそのまま置くだけで動作します（ビルド不要）。
 
