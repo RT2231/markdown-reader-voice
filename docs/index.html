@@ -786,6 +786,7 @@ details.notes-details summary:hover{color:var(--text);}
    Every visitor of this page uses this same, single ElevenLabs proxy.
 ========================================================= */
 const WORKER_URL = "https://markdown-reader-api.shirokuma0822.workers.dev"; // fixed shared endpoint for all users
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
 
 /* =========================================================
    0. Settings (persisted to localStorage)
@@ -1564,6 +1565,11 @@ function populateBrowserVoices(){
 }
 if (synth) synth.onvoiceschanged = populateBrowserVoices;
 
+let lastSpeechActivity = 0;
+let stallRetryCount = 0;
+const STALL_TIMEOUT_MS = 3500; // if the engine goes silent this long without onend/onerror, treat it as dropped
+const MAX_STALL_RETRIES = 2;
+
 function speakUnitBrowser(index, token){
   const u = readQueue[index];
   if (!u) return;
@@ -1576,8 +1582,12 @@ function speakUnitBrowser(index, token){
   utter.pitch = Number(settings.pitch)!==undefined ? Number(settings.pitch) : 1;
   utter.volume = Number(settings.volume)!==undefined ? Number(settings.volume) : 1;
   const startedAt = performance.now();
+  lastSpeechActivity = performance.now();
+  utter.onstart = () => { lastSpeechActivity = performance.now(); };
+  utter.onboundary = () => { lastSpeechActivity = performance.now(); };
   utter.onend = () => {
     if (token !== playToken) return;
+    stallRetryCount = 0;
     const actualSec = (performance.now()-startedAt)/1000;
     if (u.spokenText.length > 3){
       const measured = u.spokenText.length/Math.max(actualSec,0.15);
@@ -1588,24 +1598,50 @@ function speakUnitBrowser(index, token){
   utter.onerror = (e)=>{
     if (token !== playToken) return;
     if (e.error !== "interrupted" && e.error !== "canceled") console.warn("speech error", e.error);
-    if (e.error !== "interrupted" && e.error !== "canceled") advance(token);
+    if (e.error !== "interrupted" && e.error !== "canceled"){
+      stallRetryCount = 0;
+      advance(token);
+    }
   };
   currentUtterance = utter;
   synth.speak(utter);
 }
 
-// Chrome bug workaround: speechSynthesis sometimes auto-pauses long utterances / background tabs
+// Android Chrome (and some other mobile browsers) are known to silently drop an utterance a few
+// seconds in — audio just stops, with neither onend nor onerror firing, so naive code gets stuck
+// forever "waiting" for a callback that never comes. This watchdog detects that silence and
+// recovers by retrying the same sentence, then skipping ahead if it keeps failing.
 function startResumeWatchdog(){
   stopResumeWatchdog();
   resumeWatchdog = setInterval(()=>{
-    if (playing && !paused && synth && synth.speaking && synth.paused){
+    if (!(playing && !paused && synth)) return;
+
+    if (synth.speaking && synth.paused){
       synth.resume();
+      return;
     }
-    // also nudge periodically to keep the engine alive in background tabs (Chrome desktop known issue)
-    if (playing && !paused && synth && synth.speaking){
+
+    if (!IS_ANDROID && synth.speaking){
+      // Desktop Chrome's separate known bug: long-running speech occasionally auto-pauses in
+      // background tabs. This pause/resume cycle nudges it back to life. On Android this same
+      // trick appears to be what causes speech to cut out, so it's skipped there (see below).
       synth.pause(); synth.resume();
+      return;
     }
-  }, 4000);
+
+    if (!synth.speaking && performance.now() - lastSpeechActivity > STALL_TIMEOUT_MS){
+      const token = playToken;
+      if (stallRetryCount < MAX_STALL_RETRIES){
+        stallRetryCount++;
+        console.warn("speech stalled, retrying unit", currentIndex, "attempt", stallRetryCount);
+        speakUnit(currentIndex, token);
+      } else {
+        stallRetryCount = 0;
+        console.warn("speech stalled repeatedly, skipping to next unit");
+        advance(token);
+      }
+    }
+  }, 2000);
 }
 function stopResumeWatchdog(){ if (resumeWatchdog) clearInterval(resumeWatchdog); resumeWatchdog = null; }
 
@@ -1681,8 +1717,10 @@ ttsAudio.addEventListener("timeupdate", ()=>{
 /* =========================================================
    6. Transport controls
 ========================================================= */
+let lastStallCheckIndex = -1;
 function speakUnit(index, token){
   if (index < 0 || index >= readQueue.length){ finishPlayback(); return; }
+  if (index !== lastStallCheckIndex){ stallRetryCount = 0; lastStallCheckIndex = index; }
   currentIndex = index;
   highlightUnit(index);
   if (settings.engine === "elevenlabs") speakUnitEleven(index, token);
