@@ -8,7 +8,7 @@
 # name はデプロイ後のWorker URL（https://<name>.<subdomain>.workers.dev）に使われます。
 # 既に別名（markdown-reader-api）でWorkerを作成済みの場合は、ダッシュボードのGit連携設定時に
 # 既存のWorkerへ接続することもできますし、name をそちらに合わせて書き換えても構いません。
-name = "markdown-reader-voice-api"
+name = "markdown-reader-api"
 main = "worker.js"
 compatibility_date = "2024-11-01"
 
