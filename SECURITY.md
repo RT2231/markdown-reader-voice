@@ -14,7 +14,7 @@
 
 このリポジトリでは、`master` ブランチへのpush・週次で以下のスキャンを自動実行し、結果をGitHubの Security → Code scanning タブに集約しています（`.github/workflows/` 配下）。
 
-- **CodeQL**（GitHub公式）: JavaScriptの脆弱性パターンを静的解析
+- **CodeQL**（GitHub公式・デフォルトセットアップ）: JavaScriptの脆弱性パターンを静的解析。リポジトリの Settings → Code security で有効化されています（GitHubの仕様上、独自のCodeQLワークフローと同時には動かせないため、カスタムYAMLではなくデフォルトセットアップ側を使用しています）
 - **Microsoft Security DevOps**: ESLintセキュリティルール・既知脆弱性のある依存関係チェックなどをまとめて実行
 
 あわせて、リポジトリの **Settings → Code security** から以下をダッシュボード操作で有効にしておくことを推奨します（コード変更不要）。
