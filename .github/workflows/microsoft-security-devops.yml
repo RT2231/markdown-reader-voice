@@ -1,0 +1,38 @@
+name: "Microsoft Security DevOps"
+
+# Runs Microsoft Security DevOps (MSDO) — a bundle of scanners (ESLint security rules,
+# Template Analyzer, Trivy for known-vulnerable dependencies, Bandit, etc.) and uploads
+# the combined results to GitHub's Code Scanning (Security tab). This does not require
+# an Azure subscription; it runs entirely inside the GitHub Actions runner.
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+  schedule:
+    - cron: '17 4 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  msdo:
+    name: Run Microsoft Security DevOps
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Microsoft Security DevOps
+        uses: microsoft/security-devops-action@v1
+        id: msdo
+
+      - name: Upload results to Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.msdo.outputs.sarifFile }}

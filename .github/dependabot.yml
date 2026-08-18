@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Keeps the GitHub Actions used by the code-scanning workflows themselves up to date
+  # (actions/checkout, github/codeql-action, microsoft/security-devops-action, etc.).
+  # The app's own dependencies (marked, DOMPurify, pdf.js, JSZip, ...) are pinned CDN
+  # <script> tags inside docs/index.html rather than a package.json, so there is no
+  # npm/yarn manifest for Dependabot to scan directly — versions are reviewed manually
+  # and pinned deliberately (see SECURITY.md).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
