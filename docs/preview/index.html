@@ -1,0 +1,2609 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>[Preview] 読み上げリーダー | Markdown Voice Reader</title>
+<script>
+// Applied synchronously (before CSS paints) so dark-mode users don't see a flash of the light theme.
+try{
+  var s = JSON.parse(localStorage.getItem("mdvr_settings_v1") || "{}");
+  if (s.darkMode) document.documentElement.dataset.theme = "dark";
+}catch(e){}
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/atom-one-dark.min.css">
+
+<style>
+:root{
+  --bg:#ffffff;
+  --bg-soft:#f7f8fa;
+  --bg-elevated:#ffffff;
+  --border:#e6e8ec;
+  --text:#1a1d24;
+  --text-muted:#8a90a0;
+  --text-faint:#b4b9c6;
+  --accent:#3b6bf6;
+  --accent-hover:#2f59d6;
+  --accent-soft:#3b6bf614;
+  --accent-soft-strong:#3b6bf626;
+  --danger:#e5484d;
+  --success:#1a9e6a;
+  --highlight:#3b6bf61f;
+  --highlight-strong:#3b6bf6;
+  --radius-sm:8px;
+  --radius:14px;
+  --radius-lg:20px;
+  --shadow-sm:0 1px 2px rgba(20,22,30,.04);
+  --shadow-md:0 4px 16px rgba(20,22,30,.06), 0 1px 3px rgba(20,22,30,.05);
+  --shadow-lg:0 12px 40px rgba(20,22,30,.14), 0 2px 8px rgba(20,22,30,.06);
+  --font:"Inter","Zen Kaku Gothic New","Noto Sans JP",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --font-mono:"JetBrains Mono","Source Han Code JP","SFMono-Regular",Menlo,monospace;
+  --sidebar-w:232px;
+  --topbar-h:56px;
+  --preview-banner-h:34px;
+  --player-h:76px;
+}
+html[data-theme="dark"]{
+  --bg:#14161c;
+  --bg-soft:#191b22;
+  --bg-elevated:#1e2129;
+  --border:#2a2d38;
+  --text:#eceef2;
+  --text-muted:#8b91a3;
+  --text-faint:#5b6070;
+  --accent:#5b82f8;
+  --accent-hover:#7091fa;
+  --accent-soft:#5b82f822;
+  --accent-soft-strong:#5b82f836;
+  --highlight:#5b82f826;
+  --highlight-strong:#5b82f8;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.3);
+  --shadow-md:0 4px 20px rgba(0,0,0,.35);
+  --shadow-lg:0 16px 48px rgba(0,0,0,.5);
+}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--font);
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+  transition:background-color .2s ease, color .2s ease;
+}
+::selection{background:var(--accent-soft-strong);}
+a{color:var(--accent);}
+
+/* ---------- Preview banner ---------- */
+#previewBanner{
+  height:var(--preview-banner-h);
+  background:linear-gradient(90deg, #7c3aed, #a855f7);
+  color:#fff;
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  font-size:12.5px;font-weight:600;letter-spacing:.02em;
+  padding:0 12px;text-align:center;
+}
+#previewBanner a{color:#fff;text-decoration:underline;font-weight:700;}
+.preview-tag{
+  font-size:10px;font-weight:700;letter-spacing:.06em;
+  background:#7c3aed;color:#fff;border-radius:20px;padding:2px 8px;margin-left:6px;
+  vertical-align:middle;
+}
+
+/* ---------- App shell ---------- */
+#app{
+  display:grid;
+  grid-template-columns:var(--sidebar-w) 1fr;
+  grid-template-rows:var(--topbar-h) 1fr;
+  grid-template-areas:
+    "topbar topbar"
+    "sidebar main";
+  height:calc(100vh - var(--preview-banner-h, 0px));
+  height:calc(100dvh - var(--preview-banner-h, 0px));
+  transition:grid-template-columns .25s ease;
+}
+#app.sidebar-collapsed{grid-template-columns:0px 1fr;}
+
+/* ---------- Top bar ---------- */
+#topbar{
+  grid-area:topbar;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:0 16px;
+  background:var(--bg);
+  border-bottom:1px solid var(--border);
+  z-index:20;
+}
+#topbar .brand{
+  font-weight:700;
+  font-size:15px;
+  letter-spacing:-.01em;
+  white-space:nowrap;
+  margin-right:6px;
+  color:var(--text);
+}
+.icon-btn{
+  border:1px solid transparent;
+  background:transparent;
+  color:var(--text-muted);
+  width:32px;height:32px;
+  border-radius:var(--radius-sm);
+  display:inline-flex;align-items:center;justify-content:center;
+  cursor:pointer;
+  font-size:15px;
+  flex-shrink:0;
+}
+.icon-btn:hover{background:var(--bg-soft);color:var(--text);}
+.icon-btn:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+#topbar .spacer{flex:1;}
+#topbar .divider{width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;}
+.btn{
+  border:1px solid var(--border);
+  background:var(--bg);
+  color:var(--text);
+  padding:7px 13px;
+  border-radius:var(--radius-sm);
+  font-size:13px;
+  font-weight:500;
+  cursor:pointer;
+  font-family:var(--font);
+  white-space:nowrap;
+  display:inline-flex;align-items:center;gap:6px;
+}
+.btn:hover{border-color:var(--text-faint);background:var(--bg-soft);}
+.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent);}
+.btn.primary:hover{background:var(--accent-hover);border-color:var(--accent-hover);}
+.btn.small{padding:6px 11px;font-size:12.5px;}
+.btn svg,.icon-btn svg{width:16px;height:16px;}
+
+#urlBarTop{
+  display:flex;align-items:center;gap:6px;
+  background:var(--bg-soft);
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  padding:0 4px 0 10px;
+  height:32px;
+  width:260px;
+  flex-shrink:1;
+  min-width:120px;
+}
+#urlBarTop svg{color:var(--text-faint);flex-shrink:0;}
+#urlInputTop{
+  border:none;background:none;outline:none;flex:1;min-width:0;
+  font-size:13px;color:var(--text);font-family:var(--font);height:100%;
+}
+#urlInputTop::placeholder{color:var(--text-faint);}
+#urlGoBtn{width:26px;height:26px;flex-shrink:0;}
+#urlToggleBtn{display:none;}
+.btn-label{display:inline;}
+
+/* ---------- Sidebar ---------- */
+#sidebar{
+  grid-area:sidebar;
+  border-right:1px solid var(--border);
+  overflow:hidden auto;
+  background:var(--bg);
+  transition:opacity .2s ease;
+  display:flex;
+  flex-direction:column;
+}
+#app.sidebar-collapsed #sidebar{opacity:0;pointer-events:none;}
+#sidebar .sb-head{
+  padding:16px 16px 8px;
+  font-size:11.5px;
+  font-weight:600;
+  color:var(--text-faint);
+}
+#sidebar-footer{
+  margin-top:auto;
+  padding:14px 16px 18px;
+  border-top:1px solid var(--border);
+  display:flex;
+  justify-content:center;
+}
+#sidebar-footer img{display:block;opacity:.85;transition:opacity .15s ease;}
+#sidebar-footer a:hover img{opacity:1;}
+#toc{list-style:none;margin:0;padding:0 8px 20px;}
+#toc li{margin:0;}
+#toc a{
+  display:block;
+  padding:6px 10px;
+  border-radius:var(--radius-sm);
+  text-decoration:none;
+  color:var(--text-muted);
+  font-size:13px;
+  line-height:1.5;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+#toc a:hover{background:var(--bg-soft);color:var(--text);}
+#toc a.active{background:var(--accent-soft);color:var(--accent);font-weight:600;}
+#toc a[data-level="2"]{padding-left:22px;font-size:12.5px;}
+#toc a[data-level="3"]{padding-left:34px;font-size:12px;}
+#toc a[data-level="4"],#toc a[data-level="5"],#toc a[data-level="6"]{padding-left:44px;font-size:11.5px;}
+#toc-empty{padding:6px 16px;font-size:13px;color:var(--text-faint);}
+
+/* ---------- Main / content ---------- */
+#main{
+  grid-area:main;
+  overflow-y:auto;
+  position:relative;
+  background:var(--bg);
+}
+#dropzone{
+  position:absolute;inset:0;
+  display:none;
+  align-items:center;justify-content:center;
+  background:var(--accent-soft);
+  border:2px dashed var(--accent);
+  margin:16px;border-radius:var(--radius-lg);
+  z-index:30;
+  font-size:18px;
+  font-weight:600;
+  color:var(--accent);
+  pointer-events:none;
+}
+#app.dragging #dropzone{display:flex;}
+
+#empty-state{
+  max-width:900px;
+  margin:32px auto 40px;
+  padding:0 24px;
+}
+#empty-dropcard{
+  border:1.5px dashed var(--border);
+  border-radius:var(--radius-lg);
+  background:linear-gradient(180deg, var(--bg-soft), var(--bg));
+  min-height:min(56vh, 520px);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;
+  gap:6px;
+  cursor:pointer;
+  transition:border-color .15s ease, background .15s ease;
+}
+#empty-dropcard:hover{border-color:var(--accent);}
+#empty-dropcard .dz-title{font-size:17px;font-weight:600;color:var(--text-muted);}
+#empty-dropcard .dz-sub{font-size:13.5px;color:var(--text-faint);}
+
+#content-wrap{
+  max-width:var(--reader-width, 760px);
+  margin:0 auto;
+  padding:40px 32px 160px;
+  transition:max-width .15s ease;
+}
+#content{
+  font-size:var(--reader-font-size, 16px);
+  line-height:var(--reader-line-height, 1.95);
+  letter-spacing:.01em;
+  color:var(--text);
+  transition:font-size .15s ease, line-height .15s ease;
+}
+#doc-title{
+  font-size:25px;
+  font-weight:700;
+  letter-spacing:-.01em;
+  margin:0 0 8px;
+  padding-bottom:16px;
+  border-bottom:1px solid var(--border);
+  color:var(--text);
+}
+#content h1,#content h2,#content h3,#content h4,#content h5,#content h6{
+  font-weight:700;
+  letter-spacing:-.01em;
+  line-height:1.4;
+  margin:1.8em 0 .6em;
+  scroll-margin-top:20px;
+  color:var(--text);
+}
+#content h1{font-size:23px;}
+#content h2{font-size:20px;border-bottom:1px solid var(--border);padding-bottom:.35em;}
+#content h3{font-size:17px;}
+#content h4{font-size:15px;color:var(--text-muted);}
+#content p{margin:0 0 1.1em;}
+#content ul,#content ol{margin:0 0 1.1em;padding-left:1.4em;}
+#content li{margin:.25em 0;}
+#content li.task-list-item{list-style:none;margin-left:-1.4em;padding-left:0;}
+#content li.task-list-item input{margin-right:.5em;}
+#content blockquote{
+  margin:1.2em 0;padding:.4em 1.2em;
+  border-left:3px solid var(--accent);
+  background:var(--accent-soft);
+  color:var(--text-muted);
+  border-radius:0 var(--radius-sm) var(--radius-sm) 0;
+}
+#content blockquote p{margin:.4em 0;}
+#content code{
+  font-family:var(--font-mono);
+  background:var(--bg-soft);
+  border:1px solid var(--border);
+  padding:.1em .4em;
+  border-radius:5px;
+  font-size:.86em;
+}
+#content pre{
+  background:#1a1d24;
+  border-radius:var(--radius);
+  padding:16px 18px;
+  overflow-x:auto;
+  margin:1.3em 0;
+}
+#content pre code{background:none;border:none;padding:0;color:#e6e8ee;font-size:13.5px;line-height:1.65;}
+#content img{max-width:100%;border-radius:var(--radius-sm);display:block;margin:1em auto;}
+#content hr{border:none;border-top:1px solid var(--border);margin:2.2em 0;}
+#content table{border-collapse:collapse;width:100%;margin:1.3em 0;font-size:14px;}
+#content th,#content td{border:1px solid var(--border);padding:8px 12px;text-align:left;}
+#content th{background:var(--bg-soft);font-weight:600;}
+#content del{opacity:.55;}
+#content a{text-decoration-color:var(--accent-soft-strong);}
+.mermaid{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin:1.3em 0;display:flex;justify-content:center;}
+.pdf-page-marker{
+  text-align:center;font-size:11.5px;color:var(--text-faint);
+  margin:2.4em 0 1.6em;letter-spacing:.05em;
+  user-select:none;
+}
+#content h1.epub-chapter-title{
+  font-size:24px;font-weight:700;letter-spacing:-.01em;
+  margin:2.6em 0 .8em;padding-bottom:.4em;border-bottom:1px solid var(--border);
+}
+
+/* reading units */
+.tts-unit{border-radius:4px;transition:background-color .15s ease, box-shadow .15s ease;cursor:pointer;}
+.tts-unit:hover{background:var(--accent-soft);}
+.tts-unit.tts-current{
+  background:var(--highlight);
+  box-shadow:0 0 0 2px var(--highlight-strong);
+}
+
+/* ---------- Floating player ---------- */
+#player{
+  position:fixed;
+  left:50%;
+  bottom:20px;
+  transform:translateX(-50%);
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  background:var(--bg-elevated);
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-lg);
+  padding:12px 16px 14px;
+  width:min(640px, calc(100vw - 32px));
+  z-index:25;
+}
+#seek-row{display:flex;align-items:center;gap:10px;}
+#seek-row .time{font-size:11px;color:var(--text-faint);font-variant-numeric:tabular-nums;width:36px;}
+#seek-row .time.end{text-align:right;}
+#seekBar{
+  flex:1;-webkit-appearance:none;appearance:none;height:4px;border-radius:3px;
+  background:linear-gradient(to right, var(--accent) 0%, var(--accent) var(--pct,0%), var(--border) var(--pct,0%), var(--border) 100%);
+  cursor:pointer;
+}
+#seekBar::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;background:var(--accent);border:2px solid var(--bg-elevated);box-shadow:0 0 0 1px var(--accent);}
+#seekBar::-moz-range-thumb{width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--bg-elevated);}
+#seekBar:disabled{opacity:.4;cursor:default;}
+
+#controls-row{display:flex;align-items:center;gap:8px;}
+#controls-row .transport{display:flex;align-items:center;gap:0;}
+#controls-row .transport .icon-btn{width:34px;height:34px;font-size:15px;}
+#playBtn{
+  width:38px;height:38px;border-radius:50%;background:var(--accent);color:#fff;
+  display:inline-flex;align-items:center;justify-content:center;border:none;cursor:pointer;font-size:15px;
+  margin:0 2px;flex-shrink:0;
+}
+#playBtn:hover{background:var(--accent-hover);}
+#playBtn:disabled{background:var(--text-faint);cursor:default;}
+#now-reading{
+  flex:1;min-width:0;font-size:12.5px;color:var(--text-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  font-variant-numeric:tabular-nums;
+}
+#controls-row .right-controls{display:flex;align-items:center;gap:8px;}
+.mini-select{
+  font-size:12.5px;border:1px solid var(--border);background:var(--bg-soft);border-radius:var(--radius-sm);
+  padding:6px 8px;font-family:var(--font);color:var(--text);cursor:pointer;
+}
+
+@media (max-width:880px){
+  :root{--sidebar-w:220px;}
+  #app{grid-template-columns:0 1fr;}
+  #app.sidebar-open{grid-template-columns:var(--sidebar-w) 1fr;}
+  #sidebar{position:fixed;top:var(--topbar-h);bottom:0;left:0;width:var(--sidebar-w);z-index:40;box-shadow:2px 0 16px rgba(0,0,0,.12);opacity:0;pointer-events:none;}
+  #app.sidebar-open #sidebar{opacity:1;pointer-events:auto;}
+  #content-wrap{padding:24px 18px 150px;}
+  #now-reading{display:none;}
+  .btn-label{display:none;}
+  .btn.small{padding:7px 9px;}
+  #topbar .brand{display:none;}
+  #urlToggleBtn{display:inline-flex;}
+  #urlBarTop{
+    display:none;
+    position:absolute;top:var(--topbar-h);left:8px;right:8px;width:auto;
+    background:var(--bg-elevated);box-shadow:var(--shadow-md);z-index:35;height:44px;
+  }
+  #urlBarTop.mobile-open{display:flex;}
+  #player{width:calc(100vw - 24px);bottom:12px;padding:10px 12px 12px;}
+}
+
+/* ---------- Settings drawer ---------- */
+.modal-backdrop{
+  position:fixed;inset:0;background:rgba(10,12,18,.35);
+  opacity:0;pointer-events:none;transition:opacity .2s ease;
+  z-index:100;
+}
+.modal-backdrop.open{opacity:1;pointer-events:auto;}
+.modal{
+  position:fixed;top:0;right:0;bottom:0;
+  background:var(--bg);border-left:1px solid var(--border);
+  width:100%;max-width:400px;overflow-y:auto;
+  padding:20px 22px 40px;
+  box-shadow:var(--shadow-lg);
+  transform:translateX(100%);
+  transition:transform .25s ease;
+}
+.modal-backdrop.open .modal{transform:translateX(0);}
+.modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;}
+.modal-head h2{font-size:17px;font-weight:700;margin:0;}
+.setting-group{margin-bottom:24px;}
+.setting-group h3{
+  font-size:12px;font-weight:600;color:var(--text-faint);
+  margin:0 0 12px;
+}
+.setting-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:8px 0;}
+.setting-row > label:first-child{font-size:13.5px;flex:1;min-width:0;color:var(--text);}
+.setting-row .switch{flex:0 0 38px;}
+.setting-row .hint{display:block;font-size:11px;color:var(--text-faint);margin-top:2px;font-weight:400;}
+.setting-row select{
+  max-width:190px;min-width:0;flex:0 1 auto;
+  padding:7px 9px;border-radius:var(--radius-sm);border:1px solid var(--border);
+  background:var(--bg-soft);font-size:13px;color:var(--text);font-family:var(--font);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+
+/* engine cards */
+.engine-cards{display:flex;gap:8px;}
+.engine-card{
+  flex:1;border:1.5px solid var(--border);border-radius:var(--radius);
+  padding:12px 10px;text-align:center;cursor:pointer;background:var(--bg);
+  transition:border-color .15s ease, background .15s ease;
+}
+.engine-card:hover{border-color:var(--text-faint);}
+.engine-card.selected{border-color:var(--accent);background:var(--accent-soft);}
+.engine-card .ec-name{font-size:13.5px;font-weight:600;color:var(--text);}
+.engine-card.selected .ec-name{color:var(--accent);}
+.engine-card .ec-sub{font-size:11px;color:var(--text-faint);margin-top:2px;}
+
+/* toggle switch */
+.switch{position:relative;display:inline-block;width:38px;height:22px;flex-shrink:0;}
+.switch input{opacity:0;width:0;height:0;}
+.switch .slider{position:absolute;inset:0;background:var(--border);border-radius:20px;cursor:pointer;transition:background .15s ease;}
+.switch .slider::before{content:"";position:absolute;width:16px;height:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:transform .15s ease;box-shadow:0 1px 2px rgba(0,0,0,.2);}
+.switch input:checked + .slider{background:var(--accent);}
+.switch input:checked + .slider::before{transform:translateX(16px);}
+
+/* slider with live value */
+.slider-row{padding:10px 0;}
+.slider-row .slider-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+.slider-row label{font-size:13.5px;color:var(--text);}
+.slider-row .val{font-size:12.5px;color:var(--text-faint);font-variant-numeric:tabular-nums;}
+.slider-row input[type=range]{
+  width:100%;-webkit-appearance:none;appearance:none;height:4px;border-radius:3px;
+  background:var(--border);
+}
+.slider-row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid var(--bg-elevated);box-shadow:0 0 0 1px var(--accent);cursor:pointer;}
+.slider-row input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:var(--accent);border:2px solid var(--bg-elevated);cursor:pointer;}
+
+.note-box{background:var(--bg-soft);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;font-size:12px;line-height:1.7;color:var(--text-muted);margin-bottom:12px;}
+.note-box b{color:var(--accent);}
+details.notes-details{margin-bottom:8px;}
+details.notes-details summary{cursor:pointer;font-size:12.5px;color:var(--text-muted);font-weight:600;padding:6px 0;}
+details.notes-details summary:hover{color:var(--text);}
+.field-row{margin-bottom:12px;}
+.field-row label{display:block;font-size:12.5px;margin-bottom:5px;color:var(--text-muted);}
+.field-row input[type=text],.field-row input[type=url]{
+  width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--bg-soft);color:var(--text);font-family:var(--font);
+}
+
+/* toast */
+#toast{
+  position:fixed;bottom:calc(var(--player-h) + 30px);left:50%;transform:translateX(-50%) translateY(10px);
+  background:var(--text);color:var(--bg);font-size:13px;font-weight:500;padding:9px 16px;border-radius:var(--radius-sm);
+  opacity:0;pointer-events:none;transition:all .25s ease;z-index:200;max-width:80vw;text-align:center;
+  box-shadow:var(--shadow-md);
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+/* resume banner */
+#resumeBanner{
+  position:sticky;top:0;z-index:15;
+  display:flex;align-items:center;gap:10px;
+  background:var(--accent-soft);border-bottom:1px solid var(--accent-soft-strong);
+  padding:9px 20px;font-size:13px;color:var(--text);
+}
+#resumeBanner b{color:var(--accent);}
+#resumeBanner .spacer{flex:1;}
+#resumeBanner button.btn{padding:5px 12px;font-size:12.5px;}
+
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;}
+
+</style>
+</head>
+<body>
+
+<div id="previewBanner">
+  🧪 これはプレビュー版です（PDF / EPUB 読み込み対応・試験的機能を含みます）
+  ・<a href="../">安定版はこちら</a>
+</div>
+
+<div id="app">
+
+  <!-- TOP BAR -->
+  <div id="topbar">
+    <button class="icon-btn" id="toggleSidebarBtn" title="見出し一覧" aria-label="見出し一覧を表示">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+    <div class="brand">MD Reader <span class="preview-tag">PREVIEW</span></div>
+    <button class="btn small" id="openFileBtn" title="ファイルを開く">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+      <span class="btn-label">ファイルを開く</span>
+    </button>
+    <button class="icon-btn" id="urlToggleBtn" title="URLから開く" aria-label="URLから開く">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 13a5 5 0 007.07 0l2.83-2.83a5 5 0 00-7.07-7.07l-1.5 1.5M14 11a5 5 0 00-7.07 0L4.1 13.83a5 5 0 007.07 7.07l1.5-1.5"/></svg>
+    </button>
+    <div id="urlBarTop">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="M10 13a5 5 0 007.07 0l2.83-2.83a5 5 0 00-7.07-7.07l-1.5 1.5M14 11a5 5 0 00-7.07 0L4.1 13.83a5 5 0 007.07 7.07l1.5-1.5"/></svg>
+      <input type="url" id="urlInputTop" placeholder="https://...">
+      <button class="icon-btn" id="urlGoBtn" title="URLから読み込む" aria-label="URLから読み込む">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+    </div>
+    <input type="file" id="fileInput" accept=".md,.markdown,text/markdown,text/plain,.pdf,application/pdf,.epub,application/epub+zip" class="sr-only">
+    <div class="spacer"></div>
+    <button class="btn small" id="saveAudioBtn" title="書き出し">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" transform="rotate(180 12 12)"/></svg>
+      <span class="btn-label">書き出し</span>
+    </button>
+    <button class="icon-btn" id="settingsBtn" title="設定" aria-label="設定を開く">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.24.6.79 1 1.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+    </button>
+  </div>
+
+  <!-- SIDEBAR / TOC -->
+  <div id="sidebar">
+    <div class="sb-head">見出し</div>
+    <ul id="toc"></ul>
+    <div id="toc-empty">見出しなし</div>
+    <div id="sidebar-footer">
+      <a href="https://tsukutta.app/apps/7c82391d-9226-45da-a45f-db4ea8504254" target="_blank" rel="noopener noreferrer">
+        <img src="https://tsukutta.app/api/badge/7c82391d-9226-45da-a45f-db4ea8504254?lang=ja" alt="Tsukuttaに掲載中" width="160" height="32">
+      </a>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div id="main">
+    <div id="resumeBanner" style="display:none;">
+      <span id="resumeBannerText"></span>
+      <div class="spacer"></div>
+      <button class="btn small" id="resumeBtn">続きから再生</button>
+      <button class="icon-btn" id="resumeDismissBtn" aria-label="閉じる">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div id="dropzone">ここにファイルをドロップ (Markdown / PDF / EPUB)</div>
+
+    <div id="empty-state">
+      <div id="empty-dropcard">
+        <div class="dz-title">Markdown / PDF / EPUB をドロップ</div>
+        <div class="dz-sub">またはツールバーから読み込む</div>
+      </div>
+    </div>
+
+    <div id="content-wrap" style="display:none;">
+      <div id="doc-title"></div>
+      <div id="content"></div>
+    </div>
+  </div>
+
+  <!-- PLAYER -->
+  <div id="player">
+    <div id="seek-row">
+      <span class="time" id="timeCur">0:00</span>
+      <input type="range" id="seekBar" min="0" max="1000" value="0" step="1" disabled aria-label="シークバー">
+      <span class="time end" id="timeTotal">0:00</span>
+    </div>
+    <div id="controls-row">
+      <div class="transport">
+        <button class="icon-btn" id="prevBtn" title="前の段落" aria-label="前の段落へ">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zM10 12l9-6v12z"/></svg>
+        </button>
+        <button id="playBtn" title="再生" aria-label="再生">
+          <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <button class="icon-btn" id="stopBtn" title="停止" aria-label="読み上げを停止">
+          <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+        </button>
+        <button class="icon-btn" id="nextBtn" title="次の段落" aria-label="次の段落へ">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM5 6l9 6-9 6z"/></svg>
+        </button>
+      </div>
+      <div id="now-reading">読み込み待ち</div>
+      <div class="right-controls">
+        <select class="mini-select" id="sleepTimerSelect" title="スリープタイマー">
+          <option value="0">🌙 オフ</option>
+          <option value="5">🌙 5分</option>
+          <option value="10">🌙 10分</option>
+          <option value="15">🌙 15分</option>
+          <option value="30">🌙 30分</option>
+          <option value="45">🌙 45分</option>
+          <option value="60">🌙 60分</option>
+        </select>
+        <select class="mini-select" id="rateSelect" title="速度">
+          <option value="0.75">ゆっくり</option>
+          <option value="1" selected>通常</option>
+          <option value="1.25">やや速い</option>
+          <option value="1.5">速い</option>
+          <option value="1.75">かなり速い</option>
+          <option value="2">最速</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- SETTINGS DRAWER -->
+<div class="modal-backdrop" id="settingsBackdrop">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>設定</h2>
+      <button class="icon-btn" id="closeSettingsBtn" aria-label="設定を閉じる">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+
+    <div class="setting-group">
+      <h3>外観</h3>
+      <div class="setting-row">
+        <label for="darkModeToggle">ダークモード</label>
+        <label class="switch">
+          <input type="checkbox" id="darkModeToggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="slider-row">
+        <div class="slider-top"><label for="fontSizeRange">文字サイズ</label><span class="val" id="fontSizeVal">16px</span></div>
+        <input type="range" id="fontSizeRange" min="14" max="22" step="1" value="16">
+      </div>
+      <div class="slider-row">
+        <div class="slider-top"><label for="lineHeightRange">行間</label><span class="val" id="lineHeightVal">1.95</span></div>
+        <input type="range" id="lineHeightRange" min="1.5" max="2.4" step="0.05" value="1.95">
+      </div>
+      <div class="setting-row">
+        <label for="contentWidthSelect">本文の幅</label>
+        <select id="contentWidthSelect" class="mini-select">
+          <option value="620">狭い</option>
+          <option value="760" selected>標準</option>
+          <option value="920">広い</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="setting-group">
+      <h3>読み上げエンジン</h3>
+      <div class="engine-cards">
+        <div class="engine-card" id="engineCardBrowser" data-engine="browser">
+          <div class="ec-name">ブラウザ</div>
+          <div class="ec-sub">無料・オフライン</div>
+        </div>
+        <div class="engine-card" id="engineCardEleven" data-engine="elevenlabs">
+          <div class="ec-name">ElevenLabs</div>
+          <div class="ec-sub">高品質・API</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="setting-group" id="elevenSettingsGroup">
+      <h3>ElevenLabs</h3>
+      <div class="note-box">音声合成はアプリ提供の共有サーバー経由で行われます。APIキーはサーバー側にのみ保存され、ブラウザには一切送られません。</div>
+      <div class="setting-row">
+        <label for="elevenModelSelect">ElevenLabs モデル</label>
+        <select id="elevenModelSelect" class="mini-select">
+          <option value="eleven_multilingual_v2">multilingual_v2（高品質）</option>
+          <option value="eleven_turbo_v2_5">turbo_v2_5（低遅延）</option>
+        </select>
+      </div>
+      <span id="elevenStatus" style="font-size:12px;color:var(--text-faint);"></span>
+    </div>
+
+    <div class="setting-group">
+      <h3>音声</h3>
+      <div class="setting-row">
+        <label for="voiceSelect">音声を選択</label>
+        <select id="voiceSelect" class="mini-select"></select>
+      </div>
+    </div>
+
+    <div class="setting-group">
+      <h3>再生</h3>
+      <div class="slider-row">
+        <div class="slider-top"><label for="pitchRange">ピッチ</label><span class="val" id="pitchVal">1.0</span></div>
+        <input type="range" id="pitchRange" min="0" max="2" step="0.1" value="1">
+      </div>
+      <div class="slider-row">
+        <div class="slider-top"><label for="volumeRange">音量</label><span class="val" id="volumeVal">100%</span></div>
+        <input type="range" id="volumeRange" min="0" max="1" step="0.01" value="1">
+      </div>
+    </div>
+
+    <div class="setting-group">
+      <h3>読み上げ設定</h3>
+      <div class="setting-row"><label for="headingMode">見出し</label>
+        <select id="headingMode" class="mini-select"><option value="plain">そのまま読む</option><option value="label">「見出し」と読む</option><option value="skip">読まない</option></select>
+      </div>
+      <div class="setting-row"><label for="listMode">リスト</label>
+        <select id="listMode" class="mini-select"><option value="plain">そのまま読む</option><option value="label">「リスト」と読む</option></select>
+      </div>
+      <div class="setting-row"><label for="quoteMode">引用</label>
+        <select id="quoteMode" class="mini-select"><option value="plain">そのまま読む</option><option value="label">「引用」と読む</option></select>
+      </div>
+      <div class="setting-row"><label for="emphasisMode">強調</label>
+        <select id="emphasisMode" class="mini-select"><option value="plain">記号を無視して読む</option><option value="label">「強調」と読む</option></select>
+      </div>
+      <div class="setting-row"><label for="strikeMode">打ち消し線</label>
+        <select id="strikeMode" class="mini-select"><option value="plain">読む</option><option value="skip">読まない</option></select>
+      </div>
+      <div class="setting-row"><label for="codeMode">コードブロック</label>
+        <select id="codeMode" class="mini-select"><option value="announce">「コード」と読む</option><option value="read">そのまま読む</option><option value="ignore">読まない</option></select>
+      </div>
+      <div class="setting-row"><label for="inlineCodeMode">インラインコード</label>
+        <select id="inlineCodeMode" class="mini-select"><option value="plain">そのまま読む</option><option value="skip">読まない</option></select>
+      </div>
+      <div class="setting-row"><label for="linkMode">URL・リンク</label>
+        <select id="linkMode" class="mini-select"><option value="text">文字だけ読む</option><option value="announce">「リンク」と読む</option><option value="url">URLを読む</option></select>
+      </div>
+      <div class="setting-row"><label for="imageMode">画像（alt）</label>
+        <select id="imageMode" class="mini-select"><option value="plain">altをそのまま読む</option><option value="announce">「画像」と読む</option><option value="skip">読まない</option></select>
+      </div>
+      <div class="setting-row"><label for="tableMode">表</label>
+        <select id="tableMode" class="mini-select"><option value="rows">行ごとに読む</option><option value="announce">「表」とだけ読む</option><option value="skip">読まない</option></select>
+      </div>
+      <div class="setting-row"><label for="mathDiagramMode">数式・図</label>
+        <select id="mathDiagramMode" class="mini-select"><option value="announce">「数式・図」と読む</option><option value="skip">読まない</option></select>
+      </div>
+    </div>
+
+    <details class="notes-details">
+      <summary>バックグラウンド再生・シークバーについて</summary>
+      <div class="note-box" style="margin-top:8px;">
+        <b>バックグラウンド再生</b><br>
+        ElevenLabsエンジンはMedia Session APIに対応し、画面ロック中でも再生が継続しやすくロック画面操作にも対応します。ブラウザ標準エンジンはOS・ブラウザの制約で一時停止される場合があり、自動再開を試みますが完全な保証はできません。
+      </div>
+      <div class="note-box">
+        <b>シークバー</b><br>
+        ドラッグ中は位置を変更せず、指を離した時点でのみ移動します。過去の読み上げ処理は破棄してから新しい位置から再開するため、意図しない位置から再生される問題を防いでいます。
+      </div>
+    </details>
+
+  </div>
+</div>
+
+<div id="toast"></div>
+<audio id="ttsAudio" preload="none" style="display:none;"></audio>
+
+<!-- ===== Libraries ===== -->
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/legacy/build/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+
+<script>
+(function(){
+"use strict";
+
+/* =========================================================
+   -1. Shared Worker endpoint (fixed for all users — not user-configurable)
+   ---------------------------------------------------------------------
+   Set this once after deploying worker.js to Cloudflare (see README).
+   Every visitor of this page uses this same, single ElevenLabs proxy.
+========================================================= */
+const WORKER_URL = "https://markdown-reader-api.shirokuma0822.workers.dev"; // fixed shared endpoint for all users
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
+if (window.pdfjsLib){
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/legacy/build/pdf.worker.min.js";
+}
+
+/* =========================================================
+   0. Settings (persisted to localStorage)
+========================================================= */
+const SETTINGS_KEY = "mdvr_settings_v1";
+const defaultSettings = {
+  engine: "browser",
+  elevenModel: "eleven_multilingual_v2",
+  voiceURI: "",       // browser voice
+  elevenVoiceId: "",  // elevenlabs voice id
+  rate: 1,
+  pitch: 1,
+  volume: 1,
+  darkMode: false,
+  fontSize: 16,
+  lineHeight: 1.95,
+  contentWidth: 760,
+  headingMode: "label",
+  listMode: "plain",
+  quoteMode: "label",
+  emphasisMode: "plain",
+  strikeMode: "plain",
+  codeMode: "announce",
+  inlineCodeMode: "plain",
+  linkMode: "announce",
+  imageMode: "announce",
+  tableMode: "rows",
+  mathDiagramMode: "announce",
+};
+let settings = Object.assign({}, defaultSettings, loadSettings());
+
+function loadSettings(){
+  try{ return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; }catch(e){ return {}; }
+}
+function saveSettings(){
+  try{ localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }catch(e){}
+}
+
+/* =========================================================
+   1. DOM refs
+========================================================= */
+const $ = (id) => document.getElementById(id);
+const app = $("app");
+const fileInput = $("fileInput");
+const contentWrap = $("content-wrap");
+const emptyState = $("empty-state");
+const docTitleEl = $("doc-title");
+const contentEl = $("content");
+const tocEl = $("toc");
+const tocEmptyEl = $("toc-empty");
+const nowReadingEl = $("now-reading");
+const playBtn = $("playBtn");
+const stopBtn = $("stopBtn");
+const prevBtn = $("prevBtn");
+const nextBtn = $("nextBtn");
+const seekBar = $("seekBar");
+const timeCur = $("timeCur");
+const timeTotal = $("timeTotal");
+const voiceSelect = $("voiceSelect");
+const rateSelect = $("rateSelect");
+const volumeRange = $("volumeRange");
+const volumeVal = $("volumeVal");
+const pitchRange = $("pitchRange");
+const pitchVal = $("pitchVal");
+const saveAudioBtn = $("saveAudioBtn");
+const ttsAudio = $("ttsAudio");
+const toastEl = $("toast");
+
+const ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M8 5v14l11-7z"/></svg>';
+const ICON_PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>';
+function setPlayIcon(isPlaying){
+  playBtn.innerHTML = isPlaying ? ICON_PAUSE : ICON_PLAY;
+  playBtn.setAttribute("aria-label", isPlaying ? "一時停止" : "再生");
+}
+
+function toast(msg, ms=2600){
+  toastEl.textContent = msg;
+  toastEl.classList.add("show");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(()=>toastEl.classList.remove("show"), ms);
+}
+
+/* =========================================================
+   2. Loading files: file / drag&drop / URL  (Markdown / PDF / EPUB)
+========================================================= */
+$("openFileBtn").onclick = () => fileInput.click();
+$("empty-dropcard").onclick = () => fileInput.click();
+fileInput.onchange = (e) => {
+  const f = e.target.files[0];
+  if (f) loadFile(f);
+};
+
+function readFileAsText(file){
+  return new Promise((resolve, reject)=>{
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsText(file, "UTF-8");
+  });
+}
+function readFileAsArrayBuffer(file){
+  return new Promise((resolve, reject)=>{
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsArrayBuffer(file);
+  });
+}
+
+// Decides which parser to use from a filename/URL and optional MIME type.
+function detectFileKind(name, mimeType){
+  const n = (name || "").toLowerCase();
+  if (n.endsWith(".pdf") || mimeType === "application/pdf") return "pdf";
+  if (n.endsWith(".epub") || mimeType === "application/epub+zip") return "epub";
+  return "markdown";
+}
+function baseName(name){
+  return (name || "document").replace(/\.(md|markdown|txt|pdf|epub)$/i, "");
+}
+
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100MB — this app parses everything in the browser tab itself
+
+async function loadFile(file){
+  if (file.size > MAX_UPLOAD_BYTES){
+    toast(`ファイルサイズが大きすぎます（${Math.round(file.size/1024/1024)}MB）。100MB以下のファイルを選択してください`, 5000);
+    return;
+  }
+  const kind = detectFileKind(file.name, file.type);
+  try{
+    if (kind === "pdf"){
+      toast("PDFを解析しています…");
+      const buf = await readFileAsArrayBuffer(file);
+      await loadPdf(buf, baseName(file.name));
+    } else if (kind === "epub"){
+      toast("EPUBを解析しています…");
+      const buf = await readFileAsArrayBuffer(file);
+      await loadEpub(buf, baseName(file.name));
+    } else {
+      const text = await readFileAsText(file);
+      loadMarkdown(text, baseName(file.name));
+    }
+  }catch(err){
+    console.error(err);
+    toast("読み込みに失敗しました: " + err.message, 4500);
+  }
+}
+
+["dragenter","dragover"].forEach(ev=>{
+  window.addEventListener(ev, (e)=>{ e.preventDefault(); app.classList.add("dragging"); });
+});
+["dragleave","drop"].forEach(ev=>{
+  window.addEventListener(ev, (e)=>{
+    if (ev === "dragleave" && e.target !== document.documentElement) return;
+    app.classList.remove("dragging");
+  });
+});
+window.addEventListener("drop", (e)=>{
+  e.preventDefault();
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) loadFile(f);
+});
+
+$("urlGoBtn").onclick = () => fetchUrlInto($("urlInputTop").value.trim());
+$("urlToggleBtn").onclick = () => {
+  const bar = $("urlBarTop");
+  bar.classList.toggle("mobile-open");
+  if (bar.classList.contains("mobile-open")) $("urlInputTop").focus();
+};
+$("urlInputTop").addEventListener("keydown", (e)=>{ if(e.key==="Enter") fetchUrlInto(e.target.value.trim()); });
+
+async function fetchUrlInto(url){
+  if (!url) return;
+  const kind = detectFileKind(url, "");
+  const name = baseName(decodeURIComponent(url.split("/").pop() || "document").split("?")[0]);
+
+  if (kind === "pdf" || kind === "epub"){
+    // Binary formats: the shared Worker's URL proxy only handles text (Markdown) documents,
+    // so PDF/EPUB loading by URL only works when the host sends CORS headers directly.
+    toast(`${kind === "pdf" ? "PDF" : "EPUB"}を取得しています…`);
+    try{
+      const res = await fetch(url, {mode:"cors"});
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const declaredLen = Number(res.headers.get("Content-Length") || 0);
+      if (declaredLen && declaredLen > MAX_UPLOAD_BYTES){
+        throw new Error(`ファイルサイズが大きすぎます（${Math.round(declaredLen/1024/1024)}MB）`);
+      }
+      const buf = await res.arrayBuffer();
+      if (buf.byteLength > MAX_UPLOAD_BYTES){
+        throw new Error(`ファイルサイズが大きすぎます（${Math.round(buf.byteLength/1024/1024)}MB）`);
+      }
+      if (kind === "pdf") await loadPdf(buf, name);
+      else await loadEpub(buf, name);
+      toast("読み込みました");
+      $("urlBarTop").classList.remove("mobile-open");
+    }catch(err){
+      console.error(err);
+      toast("読み込みに失敗しました（PDF/EPUBのURL読み込みは、配信元がCORSに対応している場合のみ動作します）: " + err.message, 5000);
+    }
+    return;
+  }
+
+  toast("URL から取得しています…");
+  try{
+    let text;
+    // Try direct fetch first (works if the host sends CORS headers)
+    try{
+      const res = await fetch(url, {mode:"cors"});
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      text = await res.text();
+    }catch(directErr){
+      // Fall back to the shared Cloudflare Worker proxy to avoid CORS issues
+      if (!WORKER_URL){
+        throw new Error("直接取得できませんでした（このサイトはCORSに対応していない可能性があります）");
+      }
+      const proxyUrl = WORKER_URL.replace(/\/$/,"") + "/api/fetch-url?url=" + encodeURIComponent(url);
+      const res = await fetch(proxyUrl);
+      if (!res.ok) throw new Error("取得に失敗しました (HTTP " + res.status + ")");
+      text = await res.text();
+    }
+    loadMarkdown(text, name || "document");
+    toast("読み込みました");
+    $("urlBarTop").classList.remove("mobile-open");
+  }catch(err){
+    console.error(err);
+    toast("読み込みに失敗しました: " + err.message, 4000);
+  }
+}
+
+/* =========================================================
+   3. Markdown -> HTML rendering + read-unit construction
+========================================================= */
+let currentMarkdownTitle = "";
+let currentDocHash = "";
+
+marked.setOptions({ gfm:true, breaks:false });
+
+/* ---------- Bookmarks ("resume where I left off") ---------- */
+const BOOKMARK_PREFIX = "mdvr_bookmark_";
+
+// Cheap, stable hash of the document text — used as a per-document bookmark key.
+// Doesn't need to be cryptographically strong, just consistent for the same content.
+function hashText(str){
+  let h = 5381;
+  for (let i=0;i<str.length;i++){ h = ((h<<5)+h) + str.charCodeAt(i); h |= 0; }
+  return (h>>>0).toString(36) + "_" + str.length.toString(36);
+}
+function saveBookmark(index){
+  if (!currentDocHash || index < 0 || !readQueue.length) return;
+  try{
+    localStorage.setItem(BOOKMARK_PREFIX + currentDocHash, JSON.stringify({
+      index, total: readQueue.length, title: currentMarkdownTitle, savedAt: Date.now()
+    }));
+  }catch(e){}
+}
+function loadBookmark(){
+  if (!currentDocHash) return null;
+  try{
+    const raw = localStorage.getItem(BOOKMARK_PREFIX + currentDocHash);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+function clearBookmark(){
+  if (!currentDocHash) return;
+  try{ localStorage.removeItem(BOOKMARK_PREFIX + currentDocHash); }catch(e){}
+}
+
+function checkForBookmark(){
+  const bm = loadBookmark();
+  const banner = $("resumeBanner");
+  if (!bm || bm.index <= 0 || bm.index >= readQueue.length){
+    banner.style.display = "none";
+    return;
+  }
+  const pct = Math.round((bm.index / bm.total) * 100);
+  $("resumeBannerText").textContent = `前回、${pct}%あたりまで読んでいました`;
+  banner.style.display = "flex";
+  banner.dataset.resumeIndex = String(bm.index);
+}
+$("resumeBtn").onclick = ()=>{
+  const idx = Number($("resumeBanner").dataset.resumeIndex || -1);
+  $("resumeBanner").style.display = "none";
+  if (idx >= 0) jumpToUnit(idx, true);
+};
+$("resumeDismissBtn").onclick = ()=>{
+  $("resumeBanner").style.display = "none";
+  clearBookmark();
+};
+
+function sanitizeHtml(rawHtml){
+  return DOMPurify.sanitize(rawHtml, {
+    ADD_ATTR: ["target", "align"],
+    // Belt-and-suspenders on top of DOMPurify's already-safe defaults (which strip
+    // <script>, on*=, javascript: URLs, etc.): explicitly forbid tags/attrs that have
+    // no legitimate place in a rendered document but could enable XSS, clickjacking,
+    // or CSS-based data exfiltration if smuggled in via raw HTML (Markdown's raw-HTML
+    // passthrough, or a crafted EPUB chapter).
+    FORBID_TAGS: ["script","style","iframe","object","embed","form","button","link","meta","base"],
+    FORBID_ATTR: ["style","srcdoc","formaction"],
+  });
+}
+
+// Shared final step for every document type (Markdown/PDF/EPUB): takes already-sanitized
+// HTML, renders it, and wires up TOC/read-queue/bookmark exactly the same way regardless
+// of where the HTML came from.
+function displayDocument(cleanHtml, title, hashSource){
+  stopPlayback();
+  clearElevenAudioCache();
+  currentDocHash = hashText(hashSource);
+  currentMarkdownTitle = title || "無題のドキュメント";
+  docTitleEl.textContent = currentMarkdownTitle;
+  document.title = "[Preview] " + currentMarkdownTitle + " | 読み上げリーダー";
+
+  contentEl.innerHTML = cleanHtml;
+  // Any link that kept target="_blank" must not be able to access window.opener
+  // (reverse tabnabbing protection).
+  contentEl.querySelectorAll('a[target]').forEach(a=>{
+    a.setAttribute("rel", "noopener noreferrer");
+  });
+
+  postProcessContent();
+  buildToc();
+  buildReadQueue();
+  checkForBookmark();
+
+  emptyState.style.display = "none";
+  contentWrap.style.display = "block";
+  $("main").scrollTop = 0;
+  updateNowReading("読み上げ待機中");
+  updatePlayerEnabled(true);
+}
+
+function loadMarkdown(mdText, titleGuess){
+  revokeEpubImages();
+  const rawHtml = marked.parse(mdText);
+  const clean = sanitizeHtml(rawHtml);
+  const title = guessTitle(mdText) || titleGuess || "無題のドキュメント";
+  displayDocument(clean, title, mdText);
+}
+
+function guessTitle(md){
+  const m = md.match(/^#\s+(.+)$/m);
+  return m ? m[1].trim() : "";
+}
+
+/* =========================================================
+   3b. PDF loading (best-effort text extraction, not a pixel-perfect PDF viewer)
+   ---------------------------------------------------------------------------
+   PDFs have no semantic structure (headings/paragraphs) the way Markdown/EPUB do —
+   just positioned text runs. We reconstruct a readable approximation: group text
+   items into lines by Y position, lines into paragraphs by vertical gaps, and guess
+   headings from relative font size. This is intentionally "good enough to read and
+   listen to", not a faithful visual reproduction of the original layout.
+========================================================= */
+async function loadPdf(arrayBuffer, titleGuess){
+  revokeEpubImages();
+  if (!window.pdfjsLib) throw new Error("PDF読み込み用のライブラリが読み込まれていません");
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+  let meta = null;
+  try{ meta = await pdf.getMetadata(); }catch(e){}
+  const metaTitle = meta && meta.info && meta.info.Title ? String(meta.info.Title).trim() : "";
+
+  const htmlParts = [];
+  const allHeights = [];
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++){
+    const page = await pdf.getPage(pageNum);
+    const textContent = await page.getTextContent();
+    const items = textContent.items.filter(it => it.str && it.str.trim().length);
+    if (!items.length) continue;
+
+    // Group into lines: items whose baseline Y is within a small tolerance of each other.
+    const lines = [];
+    let currentLine = null;
+    const sorted = items.slice().sort((a,b)=> b.transform[5] - a.transform[5] || a.transform[4] - b.transform[4]);
+    sorted.forEach(it=>{
+      const y = it.transform[5];
+      const height = Math.abs(it.transform[3]) || it.height || 10;
+      allHeights.push(height);
+      if (currentLine && Math.abs(currentLine.y - y) < height * 0.5){
+        currentLine.text += (currentLine.text.endsWith(" ") ? "" : " ") + it.str;
+        currentLine.height = Math.max(currentLine.height, height);
+      } else {
+        currentLine = { y, height, text: it.str };
+        lines.push(currentLine);
+      }
+    });
+
+    htmlParts.push(`<div class="pdf-page-marker">— ページ ${pageNum} / ${pdf.numPages} —</div>`);
+
+    // Group lines into paragraphs by vertical gap, and flag probable headings by font size.
+    const medianHeight = median(lines.map(l=>l.height)) || 10;
+    let para = [];
+    let prevY = null;
+    const flushPara = ()=>{
+      if (!para.length) return;
+      const text = para.join(" ").replace(/\s+/g," ").trim();
+      if (text) htmlParts.push(`<p>${escapeHtml(text)}</p>`);
+      para = [];
+    };
+    lines.forEach(line=>{
+      const text = line.text.replace(/\s+/g," ").trim();
+      if (!text) return;
+      const gap = prevY === null ? 0 : prevY - line.y;
+      const isHeading = line.height > medianHeight * 1.35 && text.length < 90;
+      if (isHeading){
+        flushPara();
+        htmlParts.push(`<h2>${escapeHtml(text)}</h2>`);
+      } else {
+        if (gap > line.height * 1.8) flushPara();
+        para.push(text);
+      }
+      prevY = line.y;
+    });
+    flushPara();
+  }
+
+  function median(arr){
+    if (!arr.length) return 0;
+    const s = arr.slice().sort((a,b)=>a-b);
+    return s[Math.floor(s.length/2)];
+  }
+
+  const html = htmlParts.join("\n");
+  const clean = sanitizeHtml(html);
+  const title = metaTitle || titleGuess || "無題のPDF";
+  displayDocument(clean, title, title + ":" + pdf.numPages + ":" + arrayBuffer.byteLength);
+}
+
+function escapeHtml(s){
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+/* =========================================================
+   3c. EPUB loading
+   ---------------------------------------------------------------------------
+   EPUB chapters are already XHTML, so — unlike PDF — this reuses our HTML
+   rendering pipeline almost directly: unzip, resolve container.xml -> OPF ->
+   spine reading order, then read/concatenate each chapter's <body>. Images
+   referenced by relative paths inside the zip are converted to blob URLs so
+   they actually display.
+========================================================= */
+let epubImageUrls = []; // tracked so we can revoke them when a new document loads
+
+function revokeEpubImages(){
+  epubImageUrls.forEach(u => URL.revokeObjectURL(u));
+  epubImageUrls = [];
+}
+
+function resolvePath(base, relative){
+  if (/^https?:\/\//i.test(relative)) return relative;
+  const baseParts = base.split("/"); baseParts.pop();
+  const relParts = relative.split("/");
+  for (const part of relParts){
+    if (part === "." || part === "") continue;
+    if (part === "..") baseParts.pop();
+    else baseParts.push(part);
+  }
+  return baseParts.join("/");
+}
+
+async function loadEpub(arrayBuffer, titleGuess){
+  if (!window.JSZip) throw new Error("EPUB読み込み用のライブラリが読み込まれていません");
+  const zip = await JSZip.loadAsync(arrayBuffer);
+  const parser = new DOMParser();
+
+  const containerXml = await zip.file("META-INF/container.xml").async("string");
+  const containerDoc = parser.parseFromString(containerXml, "application/xml");
+  const opfPath = containerDoc.querySelector("rootfile").getAttribute("full-path");
+
+  const opfXml = await zip.file(opfPath).async("string");
+  const opfDoc = parser.parseFromString(opfXml, "application/xml");
+
+  const bookTitle = (opfDoc.querySelector("metadata > title, metadata > *|title")?.textContent || "").trim();
+
+  const manifest = {};
+  opfDoc.querySelectorAll("manifest > item").forEach(item=>{
+    manifest[item.getAttribute("id")] = {
+      href: item.getAttribute("href"),
+      type: item.getAttribute("media-type"),
+    };
+  });
+  const spineIds = Array.from(opfDoc.querySelectorAll("spine > itemref")).map(it => it.getAttribute("idref"));
+
+  // Revoke any blob URLs from a previously loaded EPUB before creating new ones.
+  revokeEpubImages();
+
+  const htmlParts = [];
+  let chapterIndex = 0;
+
+  for (const id of spineIds){
+    const item = manifest[id];
+    if (!item || !/xhtml|html/i.test(item.type || "")) continue;
+    const chapterPath = resolvePath(opfPath, item.href);
+    const file = zip.file(chapterPath);
+    if (!file) continue;
+    chapterIndex++;
+
+    const xhtml = await file.async("string");
+    const chapterDoc = parser.parseFromString(xhtml, "text/html"); // lenient HTML parsing
+    const body = chapterDoc.body;
+    if (!body) continue;
+
+    // Inline images as blob URLs (their src is a relative path inside the zip, which the
+    // browser has no way to resolve on its own).
+    const imgs = Array.from(body.querySelectorAll("img"));
+    for (const img of imgs){
+      const src = img.getAttribute("src");
+      if (!src) continue;
+      const imgPath = resolvePath(chapterPath, src);
+      const imgFile = zip.file(imgPath);
+      if (!imgFile) { img.remove(); continue; }
+      try{
+        const blob = await imgFile.async("blob");
+        const url = URL.createObjectURL(blob);
+        epubImageUrls.push(url);
+        img.setAttribute("src", url);
+      }catch(e){ img.remove(); }
+    }
+
+    // Most EPUB chapters already open with their own heading (h1/h2/h3) — if so, trust it
+    // and don't add a duplicate. Only synthesize one as a fallback (from <title>, or a
+    // generic "第N章") when the chapter has no heading of its own, so there's still
+    // something usable in the TOC and for TTS to announce.
+    const firstEl = body.firstElementChild;
+    const startsWithHeading = firstEl && /^H[1-3]$/.test(firstEl.tagName);
+    if (!startsWithHeading){
+      const fallbackTitle = (chapterDoc.querySelector("title")?.textContent || "").trim() || ("第" + chapterIndex + "章");
+      htmlParts.push(`<h1 class="epub-chapter-title">${escapeHtml(fallbackTitle)}</h1>`);
+    }
+    htmlParts.push(body.innerHTML);
+  }
+
+  const html = htmlParts.join("\n");
+  const clean = sanitizeHtml(html);
+  const title = bookTitle || titleGuess || "無題のEPUB";
+  displayDocument(clean, title, title + ":" + spineIds.length + ":" + arrayBuffer.byteLength);
+}
+
+function postProcessContent(){
+  // mermaid fences -> div.mermaid
+  contentEl.querySelectorAll("pre > code.language-mermaid").forEach(code=>{
+    const div = document.createElement("div");
+    div.className = "mermaid";
+    div.textContent = code.textContent;
+    code.closest("pre").replaceWith(div);
+  });
+  try{
+    if (window.mermaid){
+      mermaid.initialize({ startOnLoad:false, theme:"neutral" });
+      mermaid.run({ querySelector: ".mermaid" }).catch(err => console.warn("mermaid render failed", err));
+    }
+  }catch(e){ console.warn("mermaid render failed", e); }
+
+  // syntax highlight remaining code blocks
+  contentEl.querySelectorAll("pre code:not(.language-mermaid)").forEach(block=>{
+    try{ hljs.highlightElement(block); }catch(e){}
+  });
+
+  // KaTeX math ($...$ and $$...$$)
+  try{
+    if (window.renderMathInElement){
+      renderMathInElement(contentEl, {
+        delimiters:[
+          {left:"$$", right:"$$", display:true},
+          {left:"$", right:"$", display:false},
+        ],
+        throwOnError:false,
+      });
+    }
+  }catch(e){ console.warn("katex render failed", e); }
+
+  // heading ids for TOC anchor + scroll
+  let hi = 0;
+  contentEl.querySelectorAll("h1,h2,h3,h4,h5,h6").forEach(h=>{
+    h.id = "sec-" + (hi++) + "-" + slugify(h.textContent);
+  });
+}
+
+function slugify(s){
+  return s.trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu,"-").replace(/(^-|-$)/g,"").slice(0,40);
+}
+
+/* ---------- Table of contents ---------- */
+function buildToc(){
+  tocEl.innerHTML = "";
+  const heads = contentEl.querySelectorAll("h1,h2,h3,h4,h5,h6");
+  if (!heads.length){ tocEmptyEl.style.display = "block"; return; }
+  tocEmptyEl.style.display = "none";
+  heads.forEach(h=>{
+    const li = document.createElement("li");
+    const a = document.createElement("a");
+    a.href = "#" + h.id;
+    a.textContent = h.textContent;
+    a.dataset.level = h.tagName.substring(1);
+    a.dataset.target = h.id;
+    a.onclick = (e)=>{
+      e.preventDefault();
+      h.scrollIntoView({behavior:"smooth", block:"start"});
+      if (window.innerWidth <= 880) app.classList.remove("sidebar-open");
+    };
+    li.appendChild(a);
+    tocEl.appendChild(li);
+  });
+}
+
+/* =========================================================
+   4. Read-unit (sentence) extraction & DOM wrapping
+========================================================= */
+const SENTENCE_SPLIT_RE = /([^。！？.!?]*[。！？.!?]+|[^。！？.!?]+$)/g;
+
+function splitSentences(text){
+  const out = [];
+  let m;
+  SENTENCE_SPLIT_RE.lastIndex = 0;
+  while ((m = SENTENCE_SPLIT_RE.exec(text))){
+    if (m[0].length) out.push(m[0]);
+    if (m.index === SENTENCE_SPLIT_RE.lastIndex) SENTENCE_SPLIT_RE.lastIndex++;
+  }
+  return out.length ? out : (text.trim() ? [text] : []);
+}
+
+let readQueue = []; // { id, el, spokenText, kind }
+let unitCounter = 0;
+
+function wrapSentencesInBlock(block){
+  const sentences = splitSentences(block.textContent);
+  const created = [];
+  sentences.forEach(sentence=>{
+    if (!sentence.length) return;
+    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, {
+      acceptNode(node){
+        if (!node.nodeValue.length) return NodeFilter.FILTER_REJECT;
+        if (node.parentElement && node.parentElement.closest(".tts-unit")) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    let node = walker.nextNode();
+    if (!node) return;
+    const startNode = node;
+    const startOffset = 0;
+    let endNode = node, endOffset = 0, consumed = 0;
+    const need = sentence.length;
+    while (node && consumed < need){
+      const avail = node.length;
+      const remain = need - consumed;
+      if (avail <= remain){
+        consumed += avail;
+        endNode = node; endOffset = avail;
+        node = walker.nextNode();
+      } else {
+        endNode = node; endOffset = remain;
+        consumed = need;
+      }
+    }
+    try{
+      const range = document.createRange();
+      range.setStart(startNode, startOffset);
+      range.setEnd(endNode, endOffset);
+      const span = document.createElement("span");
+      span.className = "tts-unit";
+      const id = unitCounter++;
+      span.dataset.id = String(id);
+      // Note: Range.surroundContents() throws whenever a sentence boundary starts (or ends) exactly
+      // at the edge of an inline element such as <strong>/<a> (a very common case — e.g. a sentence
+      // beginning right at a bolded word), because that element is technically "partially contained"
+      // per the DOM spec even though it's fully inside the visible sentence. extractContents() handles
+      // this correctly by splitting/cloning as needed, so we use it instead and reinsert manually.
+      const frag = range.extractContents();
+      span.appendChild(frag);
+      range.insertNode(span);
+      created.push({ id, el: span });
+    }catch(e){
+      console.warn("sentence wrap failed", e);
+    }
+  });
+  cleanupEmptyInlineWrappers(block);
+  return created;
+}
+
+// extractContents() can leave behind an emptied clone of an inline element that was only
+// "partially contained" per spec (e.g. an emptied <strong></strong> shell at the original
+// position after its text was moved into a sentence span). Strip those leftovers.
+function cleanupEmptyInlineWrappers(root){
+  let changed = true;
+  while (changed){
+    changed = false;
+    root.querySelectorAll("strong,em,b,i,del,s,a,code").forEach(el=>{
+      if (el.textContent === "" && !el.classList.contains("tts-unit")){
+        el.remove();
+        changed = true;
+      }
+    });
+  }
+}
+
+function wrapWholeElement(el){
+  const span = document.createElement("span");
+  span.className = "tts-unit";
+  const id = unitCounter++;
+  span.dataset.id = String(id);
+  el.parentNode.insertBefore(span, el);
+  span.appendChild(el);
+  return { id, el: span };
+}
+
+// Handles the common case of a paragraph/list item whose only content is an image
+// (e.g. a standalone `![alt](url)`), which has no textContent for sentence-splitting to work with.
+function unitsOrImageFallback(block){
+  const units = wrapSentencesInBlock(block);
+  if (units.length) return units;
+  const img = block.querySelector("img");
+  if (img && !img.closest(".tts-unit")) return [wrapWholeElement(img)];
+  return [];
+}
+
+function spokenTextFromNode(node){
+  let out = "";
+  node.childNodes.forEach(child=>{
+    if (child.nodeType === Node.TEXT_NODE){ out += child.nodeValue; return; }
+    if (child.nodeType !== Node.ELEMENT_NODE) return;
+    const tag = child.tagName.toLowerCase();
+    if (tag === "a"){
+      const text = child.textContent;
+      const href = child.getAttribute("href") || "";
+      if (settings.linkMode === "url") out += href;
+      else if (settings.linkMode === "announce") out += `リンクがあります、${text}`;
+      else out += text;
+      return;
+    }
+    if (tag === "img"){
+      const alt = child.getAttribute("alt") || "画像";
+      if (settings.imageMode === "skip") return;
+      if (settings.imageMode === "announce") out += `画像があります、${alt}`;
+      else out += alt;
+      return;
+    }
+    if (tag === "code"){
+      if (settings.inlineCodeMode === "skip") return;
+      out += child.textContent;
+      return;
+    }
+    if ((tag === "strong" || tag === "b")){
+      out += settings.emphasisMode === "label" ? `強調、${child.textContent}` : child.textContent;
+      return;
+    }
+    if ((tag === "em" || tag === "i")){
+      out += settings.emphasisMode === "label" ? `強調、${child.textContent}` : child.textContent;
+      return;
+    }
+    if (tag === "del" || tag === "s"){
+      if (settings.strikeMode === "skip") return;
+      out += child.textContent;
+      return;
+    }
+    if (tag === "input" && child.type === "checkbox") return; // handled separately for task items
+    out += spokenTextFromNode(child);
+  });
+  return out;
+}
+
+function buildReadQueue(){
+  readQueue = [];
+  unitCounter = 0;
+  // clear markers from a previous build. Real sentence/code wrappers are <span> elements and
+  // should be unwrapped; table/tr/mermaid/katex blocks only had the class added directly to the
+  // existing element (not wrapped), so those must only have the class/dataset stripped, never unwrapped.
+  contentEl.querySelectorAll(".tts-unit").forEach(el=>{
+    if (el.tagName === "SPAN"){
+      el.replaceWith(...el.childNodes);
+    } else {
+      el.classList.remove("tts-unit");
+      delete el.dataset.id;
+    }
+  });
+
+  const blocks = contentEl.querySelectorAll(
+    "h1,h2,h3,h4,h5,h6, p, li, blockquote, pre, table, .mermaid, .katex-display"
+  );
+
+  const seen = new Set();
+
+  blocks.forEach(block=>{
+    // skip blocks nested inside another handled block (e.g. p inside li/blockquote, katex inside p)
+    if (block.closest("li") && block.tagName === "P" && block.closest("li") !== block) return;
+    if (block.tagName === "LI" && block.querySelector(":scope > ul, :scope > ol")){
+      // list item containing a nested list: still read its own direct text, nested list items handled separately
+    }
+    if (block.matches(".mermaid") || block.matches("pre")){
+      // handled below as whole-block units
+    }
+
+    if (seen.has(block)) return;
+    seen.add(block);
+
+    const tag = block.tagName.toLowerCase();
+
+    // ---- headings ----
+    if (/^h[1-6]$/.test(tag)){
+      if (settings.headingMode === "skip") return;
+      const units = unitsOrImageFallback(block);
+      units.forEach((u,i)=>{
+        readQueue.push({
+          id: u.id, el: u.el, kind:"heading", blockEl: block,
+          spokenText: (i===0 && settings.headingMode==="label" ? "見出し、" : "") + spokenTextFromNode(u.el)
+        });
+      });
+      return;
+    }
+
+    // ---- blockquote (read via its own text, not nested <p> to avoid double count) ----
+    if (tag === "blockquote"){
+      const innerParas = block.querySelectorAll(":scope > p");
+      const target = innerParas.length ? innerParas : [block];
+      target.forEach((p, pi)=>{
+        const units = unitsOrImageFallback(p);
+        units.forEach((u,i)=>{
+          readQueue.push({
+            id:u.id, el:u.el, kind:"quote", blockEl: block,
+            spokenText: (i===0 && pi===0 && settings.quoteMode==="label" ? "引用、" : "") + spokenTextFromNode(u.el)
+          });
+        });
+      });
+      return;
+    }
+
+    // ---- paragraph ----
+    if (tag === "p"){
+      if (block.closest("blockquote")) return; // handled above
+      if (block.closest("li")) return; // handled under li
+      if (block.querySelector(".katex-display")) return; // math-only paragraph handled below
+      const units = unitsOrImageFallback(block);
+      units.forEach(u=>{
+        readQueue.push({ id:u.id, el:u.el, kind:"para", blockEl:block, spokenText: spokenTextFromNode(u.el) });
+      });
+      return;
+    }
+
+    // ---- list item ----
+    if (tag === "li"){
+      const checkbox = block.querySelector(':scope > input[type="checkbox"]');
+      // read only this li's own direct text (exclude nested ul/ol which are separate blocks)
+      const clone = document.createElement("div");
+      // Instead of cloning (breaks live wrapping), wrap sentences directly on li,
+      // but TreeWalker naturally stops at nested block boundaries only by text content;
+      // to avoid reading nested list text twice, temporarily detach nested lists.
+      const nested = block.querySelectorAll(":scope > ul, :scope > ol");
+      const placeholders = [];
+      nested.forEach(n=>{
+        const ph = document.createComment("nested-list");
+        n.replaceWith(ph);
+        placeholders.push([ph, n]);
+      });
+      const units = unitsOrImageFallback(block);
+      placeholders.forEach(([ph, n])=> ph.replaceWith(n));
+
+      let label = "";
+      if (checkbox) label = checkbox.checked ? "完了、" : "未完了、";
+      else if (settings.listMode === "label") label = "リスト、";
+
+      units.forEach((u,i)=>{
+        readQueue.push({
+          id:u.id, el:u.el, kind:"list", blockEl:block,
+          spokenText: (i===0 ? label : "") + spokenTextFromNode(u.el)
+        });
+      });
+      return;
+    }
+
+    // ---- code block ----
+    if (tag === "pre"){
+      if (settings.codeMode === "ignore") return;
+      const id = unitCounter++;
+      const span = document.createElement("span");
+      span.className = "tts-unit";
+      span.dataset.id = String(id);
+      block.parentNode.insertBefore(span, block);
+      span.appendChild(block);
+      const codeText = block.textContent;
+      readQueue.push({
+        id, el: span, kind:"code", blockEl: span,
+        spokenText: settings.codeMode === "read" ? codeText : "コードブロックがあります"
+      });
+      return;
+    }
+
+    // ---- mermaid / math ----
+    if (block.matches(".mermaid") || block.matches(".katex-display")){
+      if (settings.mathDiagramMode === "skip") return;
+      const id = unitCounter++;
+      block.classList.add("tts-unit");
+      block.dataset.id = String(id);
+      readQueue.push({
+        id, el: block, kind:"visual", blockEl: block,
+        spokenText: block.matches(".mermaid") ? "図があります" : "数式があります"
+      });
+      return;
+    }
+
+    // ---- table ----
+    if (tag === "table"){
+      if (settings.tableMode === "skip") return;
+      if (settings.tableMode === "announce"){
+        const id = unitCounter++;
+        table_wrap(block, id);
+        readQueue.push({ id, el: block, kind:"table", blockEl: block, spokenText: "表があります" });
+        return;
+      }
+      const rows = block.querySelectorAll("tr");
+      rows.forEach((row, ri)=>{
+        const id = unitCounter++;
+        row.classList.add("tts-unit");
+        row.dataset.id = String(id);
+        const cells = Array.from(row.querySelectorAll("th,td")).map(c=>c.textContent.trim()).filter(Boolean);
+        readQueue.push({
+          id, el: row, kind:"table-row", blockEl: block,
+          spokenText: (ri===0 ? "表があります。" : "") + cells.join("、")
+        });
+      });
+      return;
+    }
+  });
+
+  function table_wrap(block,id){ block.classList.add("tts-unit"); block.dataset.id = String(id); }
+
+  readQueue = readQueue.filter(u => u.spokenText && u.spokenText.trim().length);
+  renderTotalTime();
+}
+
+/* =========================================================
+   5. Playback engines
+========================================================= */
+let playing = false;
+let paused = false;
+let currentIndex = -1;
+let playToken = 0; // increases on every seek/stop/restart to invalidate stale async callbacks
+
+function updatePlayerEnabled(enabled){
+  seekBar.disabled = !enabled || readQueue.length === 0;
+}
+
+function highlightUnit(index){
+  contentEl.querySelectorAll(".tts-current").forEach(e=>e.classList.remove("tts-current"));
+  const u = readQueue[index];
+  if (!u) return;
+  u.el.classList.add("tts-current");
+  saveBookmark(index);
+  const rect = u.el.getBoundingClientRect();
+  const mainRect = $("main").getBoundingClientRect();
+  if (rect.top < mainRect.top + 80 || rect.bottom > mainRect.bottom - 140){
+    u.el.scrollIntoView({ behavior:"smooth", block:"center" });
+  }
+  updateActiveToc(u.blockEl);
+  const label = {heading:"見出し", quote:"引用", list:"リスト", code:"コード", visual:"図/数式", table:"表", "table-row":"表", para:"本文"}[u.kind] || "";
+  updateNowReading(`${index+1} / ${readQueue.length}　${label ? "["+label+"] " : ""}${u.spokenText.slice(0,32)}`);
+  updateSeekUiFromIndex(index);
+  updateMediaSessionMeta(u);
+}
+
+function updateActiveToc(blockEl){
+  let heading = blockEl && blockEl.closest ? blockEl : null;
+  let h = heading;
+  while (h && !/^H[1-6]$/.test(h.tagName || "")){
+    h = h.previousElementSibling || (h.parentElement && h.parentElement.closest ? h.parentElement : null);
+    if (!h) break;
+  }
+  // simpler: find last heading before this block in document order
+  const heads = Array.from(contentEl.querySelectorAll("h1,h2,h3,h4,h5,h6"));
+  let active = null;
+  const target = blockEl.nodeType ? blockEl : blockEl;
+  for (const hh of heads){
+    if (hh.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING || hh === target){
+      active = hh;
+    } else break;
+  }
+  tocEl.querySelectorAll("a").forEach(a=>a.classList.remove("active"));
+  if (active){
+    const a = tocEl.querySelector(`a[data-target="${active.id}"]`);
+    if (a) a.classList.add("active");
+  }
+}
+
+function updateNowReading(text){ nowReadingEl.textContent = text; }
+
+function fmtTime(sec){
+  if (!isFinite(sec) || sec < 0) sec = 0;
+  const m = Math.floor(sec/60), s = Math.floor(sec%60);
+  return m + ":" + String(s).padStart(2,"0");
+}
+
+// duration estimation for browser engine (chars / avg reading speed), refined with real measurements as we go
+const avgCharsPerSec = { current: 6.5 };
+const unitDurations = []; // estimated seconds per unit, index aligned to readQueue
+
+function estimateUnitDuration(unit){
+  const chars = unit.spokenText.length;
+  return Math.max(0.4, chars / (avgCharsPerSec.current * (settings.rate||1)));
+}
+
+function renderTotalTime(){
+  unitDurations.length = 0;
+  let total = 0;
+  readQueue.forEach(u=>{
+    const d = estimateUnitDuration(u);
+    unitDurations.push(d);
+    total += d;
+  });
+  seekBar.max = String(Math.max(1, Math.round(total*10)));
+  timeTotal.textContent = fmtTime(total);
+  updatePlayerEnabled(readQueue.length>0);
+}
+
+function elapsedBeforeIndex(index){
+  let t = 0;
+  for (let i=0;i<index;i++) t += unitDurations[i]||0;
+  return t;
+}
+function totalDuration(){ return unitDurations.reduce((a,b)=>a+b,0); }
+
+function updateSeekUiFromIndex(index){
+  if (seeking) return;
+  const elapsed = elapsedBeforeIndex(index);
+  const total = totalDuration();
+  seekBar.value = String(Math.round((elapsed/Math.max(total,0.01))*Number(seekBar.max)));
+  seekBar.style.setProperty("--pct", (Number(seekBar.value)/Number(seekBar.max||1)*100)+"%");
+  timeCur.textContent = fmtTime(elapsed);
+}
+
+/* ---- Browser SpeechSynthesis engine ---- */
+const synth = window.speechSynthesis;
+let currentUtterance = null;
+let resumeWatchdog = null;
+
+function populateBrowserVoices(){
+  const voices = synth.getVoices();
+  if (settings.engine !== "browser") return;
+  voiceSelect.innerHTML = "";
+  const jaFirst = voices.slice().sort((a,b)=>{
+    const aj = a.lang.startsWith("ja") ? 0 : 1;
+    const bj = b.lang.startsWith("ja") ? 0 : 1;
+    return aj-bj;
+  });
+  jaFirst.forEach(v=>{
+    const opt = document.createElement("option");
+    opt.value = v.voiceURI;
+    const label = `${v.name} (${v.lang})`;
+    opt.textContent = label.length > 30 ? label.slice(0, 28) + "…" : label;
+    opt.title = label;
+    voiceSelect.appendChild(opt);
+  });
+  if (settings.voiceURI && jaFirst.some(v=>v.voiceURI===settings.voiceURI)){
+    voiceSelect.value = settings.voiceURI;
+  } else if (jaFirst[0]){
+    settings.voiceURI = jaFirst[0].voiceURI;
+    voiceSelect.value = settings.voiceURI;
+  }
+}
+if (synth) synth.onvoiceschanged = populateBrowserVoices;
+
+let lastSpeechActivity = 0;
+let stallRetryCount = 0;
+const STALL_TIMEOUT_MS = 3500; // if the engine goes silent this long without onend/onerror, treat it as dropped
+const MAX_STALL_RETRIES = 2;
+
+function speakUnitBrowser(index, token){
+  const u = readQueue[index];
+  if (!u) return;
+  synth.cancel();
+  const utter = new SpeechSynthesisUtterance(u.spokenText);
+  const voices = synth.getVoices();
+  const v = voices.find(v=>v.voiceURI === settings.voiceURI);
+  if (v) utter.voice = v;
+  utter.rate = Number(settings.rate)||1;
+  utter.pitch = Number(settings.pitch)!==undefined ? Number(settings.pitch) : 1;
+  utter.volume = Number(settings.volume)!==undefined ? Number(settings.volume) : 1;
+  const startedAt = performance.now();
+  lastSpeechActivity = performance.now();
+  utter.onstart = () => { lastSpeechActivity = performance.now(); };
+  utter.onboundary = () => { lastSpeechActivity = performance.now(); };
+  utter.onend = () => {
+    if (token !== playToken) return;
+    stallRetryCount = 0;
+    const actualSec = (performance.now()-startedAt)/1000;
+    if (u.spokenText.length > 3){
+      const measured = u.spokenText.length/Math.max(actualSec,0.15);
+      avgCharsPerSec.current = avgCharsPerSec.current*0.7 + measured*0.3;
+    }
+    advance(token);
+  };
+  utter.onerror = (e)=>{
+    if (token !== playToken) return;
+    if (e.error !== "interrupted" && e.error !== "canceled") console.warn("speech error", e.error);
+    if (e.error !== "interrupted" && e.error !== "canceled"){
+      stallRetryCount = 0;
+      advance(token);
+    }
+  };
+  currentUtterance = utter;
+  synth.speak(utter);
+}
+
+// Android Chrome (and some other mobile browsers) are known to silently drop an utterance a few
+// seconds in — audio just stops, with neither onend nor onerror firing, so naive code gets stuck
+// forever "waiting" for a callback that never comes. This watchdog detects that silence and
+// recovers by retrying the same sentence, then skipping ahead if it keeps failing.
+function startResumeWatchdog(){
+  stopResumeWatchdog();
+  resumeWatchdog = setInterval(()=>{
+    if (!(playing && !paused && synth)) return;
+
+    if (synth.speaking && synth.paused){
+      synth.resume();
+      return;
+    }
+
+    if (!IS_ANDROID && synth.speaking){
+      // Desktop Chrome's separate known bug: long-running speech occasionally auto-pauses in
+      // background tabs. This pause/resume cycle nudges it back to life. On Android this same
+      // trick appears to be what causes speech to cut out, so it's skipped there (see below).
+      synth.pause(); synth.resume();
+      return;
+    }
+
+    if (!synth.speaking && performance.now() - lastSpeechActivity > STALL_TIMEOUT_MS){
+      const token = playToken;
+      if (stallRetryCount < MAX_STALL_RETRIES){
+        stallRetryCount++;
+        console.warn("speech stalled, retrying unit", currentIndex, "attempt", stallRetryCount);
+        speakUnit(currentIndex, token);
+      } else {
+        stallRetryCount = 0;
+        console.warn("speech stalled repeatedly, skipping to next unit");
+        advance(token);
+      }
+    }
+  }, 2000);
+}
+function stopResumeWatchdog(){ if (resumeWatchdog) clearInterval(resumeWatchdog); resumeWatchdog = null; }
+
+/* ---- ElevenLabs engine (audio element) ---- */
+let elevenVoices = [];
+let audioCache = new Map(); // unitIndex -> ObjectURL blob
+let audioDurations = new Map(); // unitIndex -> seconds (measured)
+
+// Object URLs are only valid for the readQueue they were generated for. Without this,
+// loading a second/third document in the same session would leak one blob URL per
+// ElevenLabs-narrated sentence for every previous document (never garbage collected).
+function clearElevenAudioCache(){
+  audioCache.forEach(url => URL.revokeObjectURL(url));
+  audioCache.clear();
+  audioDurations.clear();
+}
+
+async function fetchElevenAudio(unitIndex){
+  if (audioCache.has(unitIndex)) return audioCache.get(unitIndex);
+  const u = readQueue[unitIndex];
+  if (!WORKER_URL) throw new Error("ElevenLabsエンジンは現在利用できません（サーバー未設定）");
+  const res = await fetch(WORKER_URL.replace(/\/$/,"") + "/api/tts", {
+    method:"POST",
+    headers: { "Content-Type":"application/json" },
+    body: JSON.stringify({ text: u.spokenText, voiceId: settings.elevenVoiceId, modelId: settings.elevenModel })
+  });
+  if (!res.ok){
+    const errText = await res.text().catch(()=> "");
+    throw new Error("ElevenLabs 取得エラー (" + res.status + ") " + errText.slice(0,140));
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  audioCache.set(unitIndex, url);
+  return url;
+}
+
+async function speakUnitEleven(index, token){
+  const u = readQueue[index];
+  if (!u) return;
+  try{
+    const url = await fetchElevenAudio(index);
+    if (token !== playToken) return;
+    ttsAudio.src = url;
+    ttsAudio.playbackRate = Number(settings.rate)||1;
+    ttsAudio.volume = Number(settings.volume)!==undefined ? Number(settings.volume) : 1;
+    await ttsAudio.play();
+    // prefetch next unit for smoother continuous playback
+    if (readQueue[index+1]) fetchElevenAudio(index+1).catch(()=>{});
+  }catch(err){
+    console.error(err);
+    if (token === playToken){
+      toast("ElevenLabs 読み上げに失敗しました: " + err.message, 4000);
+      pausePlayback();
+    }
+  }
+}
+
+ttsAudio.addEventListener("ended", ()=>{
+  if (settings.engine !== "elevenlabs" || !playing) return;
+  audioDurations.set(currentIndex, ttsAudio.duration || audioDurations.get(currentIndex) || 0);
+  advance(playToken);
+});
+ttsAudio.addEventListener("timeupdate", ()=>{
+  if (settings.engine !== "elevenlabs" || !playing || seeking) return;
+  if (currentIndex < 0) return;
+  const elapsed = elapsedBeforeIndex(currentIndex) + (ttsAudio.currentTime||0);
+  const total = totalDuration();
+  seekBar.value = String(Math.round((elapsed/Math.max(total,0.01))*Number(seekBar.max)));
+  seekBar.style.setProperty("--pct", (Number(seekBar.value)/Number(seekBar.max||1)*100)+"%");
+  timeCur.textContent = fmtTime(elapsed);
+});
+
+/* =========================================================
+   6. Transport controls
+========================================================= */
+let lastStallCheckIndex = -1;
+function speakUnit(index, token){
+  if (index < 0 || index >= readQueue.length){ finishPlayback(); return; }
+  if (index !== lastStallCheckIndex){ stallRetryCount = 0; lastStallCheckIndex = index; }
+  currentIndex = index;
+  highlightUnit(index);
+  if (settings.engine === "elevenlabs") speakUnitEleven(index, token);
+  else speakUnitBrowser(index, token);
+}
+
+function advance(token){
+  if (token !== playToken) return;
+  speakUnit(currentIndex+1, token);
+}
+
+function startPlayback(fromIndex){
+  if (!readQueue.length){ toast("読み込まれたドキュメントがありません"); return; }
+  playToken++;
+  const token = playToken;
+  playing = true; paused = false;
+  setPlayIcon(true);
+  playBtn.title = "一時停止";
+  if (settings.engine === "browser") startResumeWatchdog();
+  updateMediaSessionState("playing");
+  speakUnit(fromIndex, token);
+}
+
+function pausePlayback(){
+  if (!playing) return;
+  paused = true; playing = false;
+  setPlayIcon(false);
+  playBtn.title = "再生";
+  stopResumeWatchdog();
+  if (settings.engine === "browser"){ synth.pause(); }
+  else { ttsAudio.pause(); }
+  updateMediaSessionState("paused");
+}
+
+function resumePlayback(){
+  if (playing) return;
+  if (paused && settings.engine === "browser" && synth.paused && synth.speaking){
+    playing = true; paused = false;
+    setPlayIcon(true); playBtn.title = "一時停止";
+    synth.resume();
+    startResumeWatchdog();
+    updateMediaSessionState("playing");
+    return;
+  }
+  if (paused && settings.engine === "elevenlabs" && ttsAudio.src){
+    playing = true; paused = false;
+    setPlayIcon(true); playBtn.title = "一時停止";
+    ttsAudio.play();
+    updateMediaSessionState("playing");
+    return;
+  }
+  startPlayback(currentIndex >= 0 ? currentIndex : 0);
+}
+
+function stopPlayback(){
+  playToken++;
+  playing = false; paused = false;
+  currentIndex = -1;
+  stopResumeWatchdog();
+  clearSleepTimer();
+  if (synth) synth.cancel();
+  ttsAudio.pause(); ttsAudio.removeAttribute("src"); ttsAudio.load();
+  setPlayIcon(false); playBtn.title = "再生";
+  contentEl.querySelectorAll(".tts-current").forEach(e=>e.classList.remove("tts-current"));
+  seekBar.value = "0";
+  seekBar.style.setProperty("--pct","0%");
+  timeCur.textContent = "0:00";
+  updateNowReading(readQueue.length ? "停止中" : "読み込み待ち");
+  updateMediaSessionState("none");
+}
+
+function finishPlayback(){
+  playToken++;
+  playing = false; paused = false;
+  stopResumeWatchdog();
+  setPlayIcon(false); playBtn.title = "再生";
+  updateNowReading("読み上げが完了しました");
+  updateMediaSessionState("paused");
+  clearBookmark();
+}
+
+// Jumps playback to an arbitrary unit index — used by click-to-play and the resume banner.
+function jumpToUnit(index, autoplay){
+  if (index < 0 || index >= readQueue.length) return;
+  playToken++;
+  const token = playToken;
+  if (synth) synth.cancel();
+  ttsAudio.pause();
+  currentIndex = index;
+  if (autoplay){
+    playing = true; paused = false;
+    setPlayIcon(true); playBtn.title = "一時停止";
+    if (settings.engine === "browser") startResumeWatchdog();
+    updateMediaSessionState("playing");
+    speakUnit(index, token);
+  } else {
+    playing = false; paused = true;
+    highlightUnit(index);
+  }
+}
+
+// Click-to-play: clicking any highlighted sentence in the document starts reading from there.
+// Clicks on links are left alone so they still navigate normally.
+contentEl.addEventListener("click", (e)=>{
+  if (e.target.closest("a")) return;
+  if (window.getSelection && window.getSelection().toString().length > 0) return;
+  const unitEl = e.target.closest(".tts-unit");
+  if (!unitEl) return;
+  const idx = readQueue.findIndex(u => u.el === unitEl);
+  if (idx < 0) return;
+  jumpToUnit(idx, true);
+});
+
+playBtn.onclick = ()=>{
+  if (playing) pausePlayback();
+  else resumePlayback();
+};
+stopBtn.onclick = stopPlayback;
+prevBtn.onclick = ()=>{
+  if (currentIndex <= 0) return;
+  playToken++; const token = playToken;
+  const wasPlaying = playing || paused;
+  speakUnit(currentIndex-1, token);
+  if (!wasPlaying){ playing = true; paused = false; setPlayIcon(true); }
+};
+nextBtn.onclick = ()=>{
+  if (currentIndex < 0 || currentIndex >= readQueue.length-1) return;
+  playToken++; const token = playToken;
+  const wasPlaying = playing || paused;
+  speakUnit(currentIndex+1, token);
+  if (!wasPlaying){ playing = true; paused = false; setPlayIcon(true); }
+};
+
+/* ---------- Seek bar: commit only on release, never mid-drag ---------- */
+let seeking = false;
+seekBar.addEventListener("input", ()=>{
+  // live preview only — no engine action while dragging (prevents instability)
+  seeking = true;
+  const total = totalDuration();
+  const targetSec = (Number(seekBar.value)/Number(seekBar.max))*total;
+  timeCur.textContent = fmtTime(targetSec);
+  seekBar.style.setProperty("--pct", (Number(seekBar.value)/Number(seekBar.max||1)*100)+"%");
+});
+function commitSeek(){
+  if (!seeking && document.activeElement !== seekBar) return;
+  seeking = false;
+  const total = totalDuration();
+  const targetSec = (Number(seekBar.value)/Number(seekBar.max))*total;
+  seekTo(targetSec);
+}
+seekBar.addEventListener("change", commitSeek);
+seekBar.addEventListener("pointerup", ()=> setTimeout(commitSeek, 0));
+seekBar.addEventListener("touchend", ()=> setTimeout(commitSeek, 0));
+seekBar.addEventListener("keyup", (e)=>{ if (["ArrowLeft","ArrowRight","Home","End"].includes(e.key)) commitSeek(); });
+
+function seekTo(targetSec){
+  if (!readQueue.length) return;
+  // invalidate any in-flight speech/audio callbacks first (this is what fixes the "unstable seek" issue —
+  // stale onend/timeupdate handlers from the previous position can no longer advance playback)
+  playToken++;
+  const token = playToken;
+  if (synth) synth.cancel();
+  ttsAudio.pause();
+
+  let acc = 0, idx = 0;
+  for (let i=0;i<unitDurations.length;i++){
+    if (acc + unitDurations[i] > targetSec || i === unitDurations.length-1){ idx = i; break; }
+    acc += unitDurations[i];
+  }
+  const offsetInUnit = Math.max(0, targetSec - acc);
+  const wasActive = playing || paused;
+
+  if (settings.engine === "elevenlabs"){
+    currentIndex = idx;
+    highlightUnit(idx);
+    fetchElevenAudio(idx).then(url=>{
+      if (token !== playToken) return;
+      ttsAudio.src = url;
+      ttsAudio.playbackRate = Number(settings.rate)||1;
+      const applyOffset = ()=>{ ttsAudio.currentTime = Math.min(offsetInUnit, (ttsAudio.duration||offsetInUnit)-0.05); };
+      if (ttsAudio.readyState >= 1) applyOffset();
+      else ttsAudio.addEventListener("loadedmetadata", applyOffset, {once:true});
+      if (wasActive){ playing = true; paused = false; setPlayIcon(true); ttsAudio.play(); }
+    }).catch(err=>{ console.error(err); toast("シークに失敗しました", 3000); });
+  } else {
+    // SpeechSynthesis has no true mid-utterance seek: jump to the nearest sentence boundary instead
+    currentIndex = idx;
+    if (wasActive){
+      playing = true; paused = false; setPlayIcon(true);
+      speakUnit(idx, token);
+    } else {
+      highlightUnit(idx);
+      paused = true;
+    }
+  }
+}
+
+/* ---------- rate / volume / voice ---------- */
+rateSelect.value = String(settings.rate);
+volumeRange.value = String(settings.volume);
+rateSelect.onchange = ()=>{
+  settings.rate = Number(rateSelect.value);
+  saveSettings();
+  if (settings.engine === "elevenlabs") ttsAudio.playbackRate = settings.rate;
+  renderTotalTime();
+};
+volumeRange.oninput = ()=>{
+  settings.volume = Number(volumeRange.value);
+  volumeVal.textContent = Math.round(settings.volume*100) + "%";
+  saveSettings();
+  if (settings.engine === "elevenlabs") ttsAudio.volume = settings.volume;
+};
+voiceSelect.onchange = ()=>{
+  if (settings.engine === "browser") settings.voiceURI = voiceSelect.value;
+  else settings.elevenVoiceId = voiceSelect.value;
+  saveSettings();
+};
+
+/* =========================================================
+   7. Save audio (ElevenLabs: real export / Browser: unsupported)
+========================================================= */
+saveAudioBtn.onclick = async ()=>{
+  if (settings.engine !== "elevenlabs"){
+    toast("音声ファイルの保存はElevenLabsエンジンでのみ対応しています（ブラウザ標準音声はブラウザの制約で音声を取り出せません）", 4500);
+    return;
+  }
+  if (!readQueue.length){ toast("読み込まれたドキュメントがありません"); return; }
+  toast("音声を書き出しています…しばらくお待ちください");
+  try{
+    const format = window.confirm("MP3として保存しますか？（キャンセルでWAV形式）") ? "mp3" : "wav";
+    const blobs = [];
+    for (let i=0;i<readQueue.length;i++){
+      const url = await fetchElevenAudio(i);
+      const res = await fetch(url);
+      blobs.push(await res.blob());
+    }
+    if (format === "mp3"){
+      const combined = new Blob(blobs, {type:"audio/mpeg"});
+      downloadBlob(combined, (currentMarkdownTitle||"reading") + ".mp3");
+    } else {
+      const wavBlob = await concatToWav(blobs);
+      downloadBlob(wavBlob, (currentMarkdownTitle||"reading") + ".wav");
+    }
+    toast("保存しました");
+  }catch(err){
+    console.error(err);
+    toast("書き出しに失敗しました: " + err.message, 4000);
+  }
+};
+
+function downloadBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+}
+
+async function concatToWav(mp3Blobs){
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const buffers = [];
+  for (const b of mp3Blobs){
+    const arr = await b.arrayBuffer();
+    const audioBuf = await ctx.decodeAudioData(arr.slice(0));
+    buffers.push(audioBuf);
+  }
+  const numChannels = Math.max(...buffers.map(b=>b.numberOfChannels));
+  const sampleRate = buffers[0].sampleRate;
+  const totalLen = buffers.reduce((a,b)=>a+b.length,0);
+  const out = ctx.createBuffer(numChannels, totalLen, sampleRate);
+  let offset = 0;
+  for (const buf of buffers){
+    for (let ch=0; ch<numChannels; ch++){
+      const data = buf.numberOfChannels > ch ? buf.getChannelData(ch) : buf.getChannelData(0);
+      out.getChannelData(ch).set(data, offset);
+    }
+    offset += buf.length;
+  }
+  return audioBufferToWav(out);
+}
+
+function audioBufferToWav(buffer){
+  const numChannels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const length = buffer.length * numChannels * 2 + 44;
+  const bufferArr = new ArrayBuffer(length);
+  const view = new DataView(bufferArr);
+  const writeStr = (offset, str)=>{ for (let i=0;i<str.length;i++) view.setUint8(offset+i, str.charCodeAt(i)); };
+  writeStr(0,"RIFF"); view.setUint32(4, length-8, true); writeStr(8,"WAVE");
+  writeStr(12,"fmt "); view.setUint32(16,16,true); view.setUint16(20,1,true);
+  view.setUint16(22,numChannels,true); view.setUint32(24,sampleRate,true);
+  view.setUint32(28, sampleRate*numChannels*2, true); view.setUint16(32, numChannels*2, true);
+  view.setUint16(34,16,true);
+  writeStr(36,"data"); view.setUint32(40, length-44, true);
+  let offset = 44;
+  const channels = [];
+  for (let ch=0; ch<numChannels; ch++) channels.push(buffer.getChannelData(ch));
+  for (let i=0;i<buffer.length;i++){
+    for (let ch=0; ch<numChannels; ch++){
+      let sample = Math.max(-1, Math.min(1, channels[ch][i]));
+      sample = sample < 0 ? sample*0x8000 : sample*0x7FFF;
+      view.setInt16(offset, sample, true);
+      offset += 2;
+    }
+  }
+  return new Blob([bufferArr], {type:"audio/wav"});
+}
+
+/* =========================================================
+   8. Media Session (lock screen controls + background hint)
+========================================================= */
+function updateMediaSessionMeta(unit){
+  if (!("mediaSession" in navigator)) return;
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: (unit && unit.spokenText ? unit.spokenText.slice(0,60) : currentMarkdownTitle) || "読み上げリーダー",
+    artist: currentMarkdownTitle || "Markdown Voice Reader",
+    album: "読み上げリーダー",
+  });
+}
+function updateMediaSessionState(state){
+  if (!("mediaSession" in navigator)) return;
+  if (state === "playing") navigator.mediaSession.playbackState = "playing";
+  else if (state === "paused") navigator.mediaSession.playbackState = "paused";
+  else navigator.mediaSession.playbackState = "none";
+}
+if ("mediaSession" in navigator){
+  navigator.mediaSession.setActionHandler("play", ()=>resumePlayback());
+  navigator.mediaSession.setActionHandler("pause", ()=>pausePlayback());
+  navigator.mediaSession.setActionHandler("previoustrack", ()=>prevBtn.onclick());
+  navigator.mediaSession.setActionHandler("nexttrack", ()=>nextBtn.onclick());
+  try{
+    navigator.mediaSession.setActionHandler("seekto", (details)=>{
+      if (details.seekTime != null) seekTo(details.seekTime);
+    });
+  }catch(e){}
+}
+
+// Keep the tab classified as an active media session (helps some browsers avoid throttling)
+document.addEventListener("visibilitychange", ()=>{
+  if (document.hidden && playing && settings.engine === "browser" && synth){
+    // nudge once immediately on backgrounding — some browsers pause synth right at this transition
+    setTimeout(()=>{ if (synth.paused) synth.resume(); }, 300);
+  }
+});
+
+/* =========================================================
+   9. Settings UI wiring
+========================================================= */
+const settingsBackdrop = $("settingsBackdrop");
+$("settingsBtn").onclick = ()=> settingsBackdrop.classList.add("open");
+$("closeSettingsBtn").onclick = ()=> settingsBackdrop.classList.remove("open");
+settingsBackdrop.addEventListener("click", (e)=>{ if (e.target === settingsBackdrop) settingsBackdrop.classList.remove("open"); });
+
+document.querySelectorAll(".tab-btn").forEach(btn=>{
+  btn.onclick = ()=>{
+    document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("active"));
+    document.querySelectorAll(".tab-pane").forEach(p=>p.classList.remove("active"));
+    btn.classList.add("active");
+    $("tab-"+btn.dataset.tab).classList.add("active");
+  };
+});
+
+function bindSelect(id, key){
+  const el = $(id);
+  el.value = settings[key];
+  el.onchange = ()=>{
+    settings[key] = el.value;
+    saveSettings();
+    if (["headingMode","listMode","quoteMode","emphasisMode","strikeMode","codeMode","inlineCodeMode","linkMode","imageMode","tableMode","mathDiagramMode"].includes(key)){
+      if (contentEl.innerHTML.trim()){
+        // Rebuilding replaces the whole readQueue (unit count/order can change), so a playback
+        // in progress would otherwise resume against stale indices from the old queue.
+        stopPlayback();
+        buildReadQueue();
+      }
+    }
+  };
+}
+["headingMode","listMode","quoteMode","emphasisMode","strikeMode","codeMode","inlineCodeMode","linkMode","imageMode","tableMode","mathDiagramMode"]
+  .forEach(k=>bindSelect(k,k));
+
+const engineCards = document.querySelectorAll(".engine-card");
+const elevenSettingsGroup = $("elevenSettingsGroup");
+const elevenStatus = $("elevenStatus");
+let elevenVoicesLoading = false;
+
+function refreshEngineUi(){
+  engineCards.forEach(c=> c.classList.toggle("selected", c.dataset.engine === settings.engine));
+  elevenSettingsGroup.style.display = settings.engine === "elevenlabs" ? "block" : "none";
+  voiceSelect.innerHTML = "";
+  if (settings.engine === "elevenlabs"){
+    elevenVoices.forEach(v=>{
+      const opt = document.createElement("option");
+      opt.value = v.voice_id;
+      opt.textContent = v.name.length > 30 ? v.name.slice(0, 28) + "…" : v.name;
+      opt.title = v.name;
+      voiceSelect.appendChild(opt);
+    });
+    const hasSavedVoice = elevenVoices.some(v => v.voice_id === settings.elevenVoiceId);
+    if (hasSavedVoice){
+      voiceSelect.value = settings.elevenVoiceId;
+    } else if (elevenVoices.length){
+      // No voice chosen yet (or the saved one no longer exists) — default to the first
+      // available voice and persist it, otherwise playback fails with "voiceId is required"
+      // until the user happens to open this dropdown themselves.
+      settings.elevenVoiceId = elevenVoices[0].voice_id;
+      voiceSelect.value = settings.elevenVoiceId;
+      saveSettings();
+    }
+    if (!elevenVoices.length && !elevenVoicesLoading) loadElevenVoices();
+  } else {
+    populateBrowserVoices();
+  }
+}
+
+async function loadElevenVoices(){
+  if (!WORKER_URL){
+    elevenStatus.textContent = "現在ElevenLabsは利用できません（サーバー未設定）";
+    return;
+  }
+  elevenVoicesLoading = true;
+  elevenStatus.textContent = "音声一覧を取得中…";
+  try{
+    const res = await fetch(WORKER_URL.replace(/\/$/,"") + "/api/voices");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    elevenVoices = data.voices || [];
+    elevenStatus.textContent = elevenVoices.length ? "" : "音声が見つかりませんでした";
+    refreshEngineUi();
+  }catch(err){
+    elevenStatus.textContent = "音声一覧の取得に失敗しました: " + err.message;
+  }finally{
+    elevenVoicesLoading = false;
+  }
+}
+
+if (!WORKER_URL){
+  const elevenCard = $("engineCardEleven");
+  elevenCard.style.opacity = "0.5";
+  elevenCard.style.cursor = "default";
+  elevenCard.title = "現在利用できません";
+}
+
+engineCards.forEach(card=>{
+  card.onclick = ()=>{
+    if (card.dataset.engine === "elevenlabs" && !WORKER_URL){
+      toast("ElevenLabsエンジンは現在利用できません");
+      return;
+    }
+    if (card.dataset.engine === settings.engine) return;
+    stopPlayback();
+    settings.engine = card.dataset.engine;
+    saveSettings();
+    refreshEngineUi();
+  };
+});
+$("elevenModelSelect").value = settings.elevenModel;
+$("elevenModelSelect").onchange = (e)=>{ settings.elevenModel = e.target.value; saveSettings(); };
+
+refreshEngineUi();
+
+/* ---------- Dark mode ---------- */
+const darkModeToggle = $("darkModeToggle");
+darkModeToggle.checked = !!settings.darkMode;
+document.documentElement.dataset.theme = settings.darkMode ? "dark" : "light";
+darkModeToggle.onchange = ()=>{
+  settings.darkMode = darkModeToggle.checked;
+  document.documentElement.dataset.theme = settings.darkMode ? "dark" : "light";
+  saveSettings();
+};
+
+/* ---------- Pitch / volume live readouts ---------- */
+pitchRange.value = String(settings.pitch);
+pitchVal.textContent = Number(settings.pitch).toFixed(1);
+pitchRange.oninput = ()=>{
+  settings.pitch = Number(pitchRange.value);
+  pitchVal.textContent = settings.pitch.toFixed(1);
+  saveSettings();
+};
+volumeVal.textContent = Math.round(Number(settings.volume)*100) + "%";
+
+/* ---------- Display: font size / line height / content width ---------- */
+const fontSizeRange = $("fontSizeRange");
+const fontSizeVal = $("fontSizeVal");
+const lineHeightRange = $("lineHeightRange");
+const lineHeightVal = $("lineHeightVal");
+const contentWidthSelect = $("contentWidthSelect");
+
+function applyReaderDisplaySettings(){
+  document.documentElement.style.setProperty("--reader-font-size", settings.fontSize + "px");
+  document.documentElement.style.setProperty("--reader-line-height", String(settings.lineHeight));
+  document.documentElement.style.setProperty("--reader-width", settings.contentWidth + "px");
+}
+fontSizeRange.value = String(settings.fontSize);
+fontSizeVal.textContent = settings.fontSize + "px";
+fontSizeRange.oninput = ()=>{
+  settings.fontSize = Number(fontSizeRange.value);
+  fontSizeVal.textContent = settings.fontSize + "px";
+  applyReaderDisplaySettings();
+  saveSettings();
+};
+lineHeightRange.value = String(settings.lineHeight);
+lineHeightVal.textContent = Number(settings.lineHeight).toFixed(2);
+lineHeightRange.oninput = ()=>{
+  settings.lineHeight = Number(lineHeightRange.value);
+  lineHeightVal.textContent = settings.lineHeight.toFixed(2);
+  applyReaderDisplaySettings();
+  saveSettings();
+};
+contentWidthSelect.value = String(settings.contentWidth);
+contentWidthSelect.onchange = ()=>{
+  settings.contentWidth = Number(contentWidthSelect.value);
+  applyReaderDisplaySettings();
+  saveSettings();
+};
+applyReaderDisplaySettings();
+
+/* ---------- Sleep timer ---------- */
+const sleepTimerSelect = $("sleepTimerSelect");
+let sleepTimerHandle = null;
+
+function clearSleepTimer(){
+  if (sleepTimerHandle){ clearTimeout(sleepTimerHandle); sleepTimerHandle = null; }
+  sleepTimerSelect.value = "0";
+}
+sleepTimerSelect.onchange = ()=>{
+  clearTimeout(sleepTimerHandle);
+  sleepTimerHandle = null;
+  const minutes = Number(sleepTimerSelect.value);
+  if (!minutes) return;
+  toast(`スリープタイマー: ${minutes}分後に一時停止します`);
+  sleepTimerHandle = setTimeout(()=>{
+    if (playing) pausePlayback();
+    toast("スリープタイマーにより一時停止しました");
+    sleepTimerSelect.value = "0";
+    sleepTimerHandle = null;
+  }, minutes * 60 * 1000);
+};
+
+/* =========================================================
+   10. Sidebar toggle (responsive)
+========================================================= */
+$("toggleSidebarBtn").onclick = ()=>{
+  if (window.innerWidth <= 880) app.classList.toggle("sidebar-open");
+  else app.classList.toggle("sidebar-collapsed");
+};
+
+/* =========================================================
+   11. Keyboard shortcuts
+========================================================= */
+document.addEventListener("keydown", (e)=>{
+  if (["INPUT","TEXTAREA","SELECT"].includes(document.activeElement.tagName)) return;
+  if (e.code === "Space"){ e.preventDefault(); playBtn.onclick(); }
+  else if (e.code === "ArrowRight"){ nextBtn.onclick(); }
+  else if (e.code === "ArrowLeft"){ prevBtn.onclick(); }
+  else if (e.code === "Escape"){ settingsBackdrop.classList.remove("open"); }
+});
+
+/* =========================================================
+   init
+========================================================= */
+populateBrowserVoices();
+renderTotalTime();
+updatePlayerEnabled(false);
+
+})();
+</script>
+</body>
+</html>
