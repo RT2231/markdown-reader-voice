@@ -12,6 +12,15 @@ Markdown ファイルを読み込み、表示しながら音声で読み上げ�
 | `index.html` | アプリ本体（これ1ファイルで完結。静的ホスティングにそのまま配置） |
 | `worker.js` | ElevenLabsをブラウザに直接鍵を渡さず使うためのCloudflare Workerプロキシ（**ElevenLabsを使う場合のみ必要**） |
 
+## 公開URL
+
+| 版 | URL | 内容 |
+|---|---|---|
+| 安定版 | https://rt2231.github.io/markdown-reader-voice/ | Markdown読み込み・音声読み上げ |
+| プレビュー版 | https://rt2231.github.io/markdown-reader-voice/preview/ | 安定版の内容に加え、**PDF / EPUB 読み込み**（試験的機能）を追加したもの |
+
+プレビュー版は画面上部に紫のバナーが表示され、安定版と一目で見分けられるようになっています。動作確認が済み次第、安定版（`docs/index.html`）に取り込みます。
+
 ## セットアップ
 
 ### 1. アプリ本体（必須）
