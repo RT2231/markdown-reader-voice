@@ -349,6 +349,14 @@ a{color:var(--accent);}
   margin:2.4em 0 1.6em;letter-spacing:.05em;
   user-select:none;
 }
+.ocr-note{
+  font-size:12.5px;color:#9a6a00;background:#fff6e0;border:1px solid #f0d998;
+  border-radius:var(--radius-sm);padding:8px 12px;margin:0 0 1.2em;
+  line-height:1.6;
+}
+html[data-theme="dark"] .ocr-note{
+  color:#e6c675;background:#3a2f10;border-color:#5c4a1a;
+}
 #content h1.epub-chapter-title{
   font-size:24px;font-weight:700;letter-spacing:-.01em;
   margin:2.6em 0 .8em;padding-bottom:.4em;border-bottom:1px solid var(--border);
@@ -807,6 +815,7 @@ details.notes-details summary:hover{color:var(--text);}
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/legacy/build/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js"></script>
 
 <script>
 (function(){
@@ -1175,7 +1184,54 @@ function guessTitle(md){
    items into lines by Y position, lines into paragraphs by vertical gaps, and guess
    headings from relative font size. This is intentionally "good enough to read and
    listen to", not a faithful visual reproduction of the original layout.
+
+   Pages with NO embedded text layer at all (scanned/photographed pages with no OCR
+   already baked into the PDF) are rendered to an image and run through in-browser
+   OCR (Tesseract.js) instead of being silently skipped. Low-confidence OCR results
+   are flagged with a visible annotation rather than presented as if they were exact.
 ========================================================= */
+const OCR_LANGS = "jpn+eng";
+const OCR_CONFIDENCE_WARN_THRESHOLD = 75; // Tesseract's 0-100 mean confidence score
+const OCR_MAX_PAGES = 40; // safety cap so a huge scanned book can't hang the tab indefinitely
+let ocrWorker = null;
+
+async function getOcrWorker(){
+  if (ocrWorker) return ocrWorker;
+  if (!window.Tesseract) throw new Error("OCR用のライブラリが読み込まれていません");
+  ocrWorker = await Tesseract.createWorker(OCR_LANGS);
+  return ocrWorker;
+}
+
+async function ocrPageToHtml(page, pageNum, totalPages){
+  const viewport = page.getViewport({ scale: 2.2 }); // higher scale = better OCR accuracy, still reasonable perf
+  const canvas = document.createElement("canvas");
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  const ctx = canvas.getContext("2d");
+  await page.render({ canvasContext: ctx, viewport }).promise;
+
+  const worker = await getOcrWorker();
+  const { data } = await worker.recognize(canvas);
+  const text = (data.text || "").trim();
+  const confidence = typeof data.confidence === "number" ? data.confidence : 0;
+
+  if (!text){
+    return [`<div class="pdf-page-marker">— ページ ${pageNum} / ${totalPages}（OCR: 文字を検出できませんでした） —</div>`];
+  }
+
+  const parts = [`<div class="pdf-page-marker">— ページ ${pageNum} / ${totalPages}（OCRで読み取り） —</div>`];
+  if (confidence < OCR_CONFIDENCE_WARN_THRESHOLD){
+    parts.push(`<div class="ocr-note">⚠ OCRの認識信頼度が低めです（推定 ${Math.round(confidence)}%）。誤字・誤読が含まれている可能性があります。</div>`);
+  }
+  // Tesseract separates paragraphs with blank lines; join single line-breaks within a
+  // paragraph (likely just wrapped text) and treat blank lines as paragraph boundaries.
+  text.split(/\n\s*\n/).forEach(block=>{
+    const joined = block.replace(/\s*\n\s*/g, "").trim();
+    if (joined) parts.push(`<p>${escapeHtml(joined)}</p>`);
+  });
+  return parts;
+}
+
 async function loadPdf(arrayBuffer, titleGuess){
   revokeEpubImages();
   if (!window.pdfjsLib) throw new Error("PDF読み込み用のライブラリが読み込まれていません");
@@ -1186,13 +1242,35 @@ async function loadPdf(arrayBuffer, titleGuess){
   const metaTitle = meta && meta.info && meta.info.Title ? String(meta.info.Title).trim() : "";
 
   const htmlParts = [];
-  const allHeights = [];
+  let ocrPageCount = 0;
+  let ocrCapReached = false;
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++){
     const page = await pdf.getPage(pageNum);
     const textContent = await page.getTextContent();
     const items = textContent.items.filter(it => it.str && it.str.trim().length);
-    if (!items.length) continue;
+
+    if (!items.length){
+      // No embedded text layer on this page at all — fall back to OCR.
+      if (ocrPageCount >= OCR_MAX_PAGES){
+        if (!ocrCapReached){
+          ocrCapReached = true;
+          htmlParts.push(`<div class="ocr-note">⚠ OCR処理できるページ数の上限（${OCR_MAX_PAGES}ページ）に達したため、これ以降の画像のみのページは読み込みをスキップしています。</div>`);
+        }
+        continue;
+      }
+      ocrPageCount++;
+      toast(`OCR処理中… ${pageNum} / ${pdf.numPages} ページ`, 6000);
+      try{
+        const ocrHtml = await ocrPageToHtml(page, pageNum, pdf.numPages);
+        htmlParts.push(...ocrHtml);
+      }catch(err){
+        console.error("OCR failed for page", pageNum, err);
+        htmlParts.push(`<div class="pdf-page-marker">— ページ ${pageNum} / ${pdf.numPages} —</div>`);
+        htmlParts.push(`<div class="ocr-note">⚠ このページのOCR処理に失敗しました: ${escapeHtml(err.message)}</div>`);
+      }
+      continue;
+    }
 
     // Group into lines: items whose baseline Y is within a small tolerance of each other.
     const lines = [];
@@ -1201,7 +1279,6 @@ async function loadPdf(arrayBuffer, titleGuess){
     sorted.forEach(it=>{
       const y = it.transform[5];
       const height = Math.abs(it.transform[3]) || it.height || 10;
-      allHeights.push(height);
       if (currentLine && Math.abs(currentLine.y - y) < height * 0.5){
         currentLine.text += (currentLine.text.endsWith(" ") ? "" : " ") + it.str;
         currentLine.height = Math.max(currentLine.height, height);
@@ -1238,6 +1315,13 @@ async function loadPdf(arrayBuffer, titleGuess){
       prevY = line.y;
     });
     flushPara();
+  }
+
+  if (ocrWorker){
+    // Free the OCR worker's memory once the whole document has been processed —
+    // no need to keep it alive between separate PDF loads.
+    ocrWorker.terminate().catch(()=>{});
+    ocrWorker = null;
   }
 
   function median(arr){
